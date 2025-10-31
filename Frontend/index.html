@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Authentication - VDT</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 450px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo-text {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .vdt {
+            font-size: 56px;
+            font-weight: 700;
+            color: #e67e22;
+            letter-spacing: 2px;
+        }
+
+        .divider {
+            width: 2px;
+            height: 50px;
+            background-color: #e67e22;
+        }
+
+        .trust-text {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            font-size: 18px;
+            color: #e67e22;
+            line-height: 1.2;
+        }
+
+        .trust-text span {
+            font-weight: 500;
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            color: #3498db;
+            font-size: 24px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background-color: #fafafa;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #3498db;
+            background-color: white;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        input::placeholder {
+            color: #bbb;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .login-btn:hover {
+            background: linear-gradient(135deg, #229954 0%, #1e8449 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(39, 174, 96, 0.3);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .status-message {
+            text-align: center;
+            margin-top: 20px;
+            color: #27ae60;
+            font-size: 14px;
+        }
+
+        .portal-link {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .portal-link a {
+            color: #2c3e50;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .portal-link a:hover {
+            color: #3498db;
+            text-decoration: underline;
+        }
+
+        @media (max-width: 480px) {
+            .vdt {
+                font-size: 42px;
+            }
+
+            .trust-text {
+                font-size: 15px;
+            }
+
+            .divider {
+                height: 40px;
+            }
+
+            .login-card {
+                padding: 30px 25px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <div class="logo-text">
+                <div class="vdt">VDT</div>
+                <div class="divider"></div>
+                <div class="trust-text">
+                    <span>Vidyalankar</span>
+                    <span>Dnyanapeeth</span>
+                    <span>Trust</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="login-card">
+            <h2>Network Authentication</h2>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <input 
+                        type="text" 
+                        id="username" 
+                        placeholder="Username" 
+                        required
+                    >
+                </div>
+                
+                <div class="form-group">
+                    <input 
+                        type="password" 
+                        id="password" 
+                        placeholder="Password" 
+                        required
+                    >
+                </div>
+                
+                <button type="submit" class="login-btn">Login</button>
+            </form>
+
+            <div class="status-message">You've signed out</div>
+
+            <div class="portal-link">
+                <a href="#" id="portalLink">Click here for User Portal</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            // Add your authentication logic here
+            console.log('Login attempt:', { username, password });
+            
+            // Example: Show loading state
+            const btn = document.querySelector('.login-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Logging in...';
+            btn.disabled = true;
+            
+            // Simulate authentication
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+                alert('Login functionality would be connected to your backend here');
+            }, 1500);
+        });
+
+        document.getElementById('portalLink').addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Navigate to user portal');
+            // Add your portal navigation logic here
+        });
+    </script>
+</body>
+</html>
