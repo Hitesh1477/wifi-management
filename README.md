@@ -10,10 +10,13 @@ Go to backend folder
 cd Backend
 
 Create Virtual Environment
+
 python -m venv venv
 
 Activate Virtual Environment
+
 venv\Scripts\activate
+
 pip install -r requirements.txt
 
 Run Backend Server
