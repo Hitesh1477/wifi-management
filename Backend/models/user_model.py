@@ -1,4 +1,4 @@
-from database import users_collection
+from db import users_collection
 
 def create_user(data):
     users_collection.insert_one(data)

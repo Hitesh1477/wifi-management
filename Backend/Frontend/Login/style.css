@@ -1,0 +1,72 @@
+body {
+    font-family: Arial, sans-serif;
+    background: white;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0;
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+
+/* Login Box */
+.login-box {
+    background: #fff;
+    width: 420px;
+    padding: 50px;
+    padding-top: 60px;
+    padding-bottom: 70px;   /* ✅ Increased height */
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+
+.logo {
+    width: 80px;
+    margin-bottom: 10px;
+}
+
+input {
+    width: 90%;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 6px;
+    border: 1px solid #aaa;
+    outline: none;
+}
+
+button {
+    width: 95%;
+    padding: 12px;
+    background: #2e8f47;
+    color: white;
+    font-size: 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+button:hover {
+   background: #2e8f47;
+}
+
+.error-text {
+    color: red;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.portal-link {
+    margin-top: 15px;
+    display: block;
+    font-size: 14px;
+    color: #0066ff;
+    text-decoration: none;
+}

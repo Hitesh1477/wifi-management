@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Welcome</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .success-box {
+            background: #fff;
+            width: 380px;
+            padding: 40px;
+            padding-top: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+
+        .logo {
+            width: 200px;
+            margin-bottom: 10px;
+        }
+
+        .tick-circle {
+            width: 80px;
+            height: 80px;
+            background: #34a853;
+            color: white;
+            font-size: 50px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px auto;
+        }
+
+        .logout-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            background: #34a853;
+            color: white;
+            font-size: 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        .logout-btn:hover {
+            background: #2e8f47;
+        }
+
+        .portal-link {
+            margin-top: 15px;
+            display: block;
+            color: #0d6efd;
+            font-weight: 500;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <div class="success-box">
+        <!-- ✅ LOGO INSIDE CARD AND CENTERED -->
+        <img src="./public/vdt-logo.png" class="logo" alt="College Logo">
+
+        <p class="welcome-text">
+            You are signed in as <b id="rollDisplay">User</b>
+        </p>
+
+        <div class="tick-circle">&#10004;</div>
+
+        <button class="logout-btn" onclick="logoutUser()">Logout</button>
+
+        <a class="portal-link" href="#">Click here for User Portal</a>
+    </div>
+</div>
+
+<script>
+    document.getElementById("rollDisplay").innerText = localStorage.getItem("roll_no");
+
+    function logoutUser() {
+        localStorage.clear();
+        window.location.href = "index.html";
+    }
+</script>
+
+</body>
+</html>
