@@ -5,17 +5,25 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
 
+# ✅ Import admin routes
+from admin_routes import admin_routes
+
 app = Flask(__name__)
 CORS(app)
 
 app.config['SECRET_KEY'] = "your-secret-key"
 
-# MongoDB connection
+# ✅ MongoDB connection
 client = MongoClient("mongodb://localhost:27017/")
 db = client['studentapp']
 users_collection = db['users']
+admins_collection = db['admins']
 
-# ✅ Signup Route
+# ✅ Register admin blueprint (MUST be after Flask app init)
+app.register_blueprint(admin_routes)
+
+
+# ✅ User Signup Route
 @app.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
@@ -39,7 +47,7 @@ def signup():
     return jsonify({"message": "User registered successfully"}), 201
 
 
-# ✅ Login Route
+# ✅ User Login Route
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -53,13 +61,14 @@ def login():
 
     token = jwt.encode({
         "roll_no": roll_no,
+        "role": user["role"],
         "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
     }, app.config['SECRET_KEY'], algorithm="HS256")
 
     return jsonify({"message": "Login successful", "token": token})
 
 
-# ✅ Root Test Route (optional)
+# ✅ Root Test Route
 @app.route('/')
 def home():
     return jsonify({"message": "Backend is running ✅"})

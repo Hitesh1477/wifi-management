@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Manage Users</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+    :root {
+        --primary: #5d5feeff;
+        --primary-light: #7879f1;
+        --success: #10b981;
+        --danger: #ef4444;
+        --gray-50: #fafafa;
+        --gray-100: #f5f5f5;
+        --gray-200: #e5e5e5;
+        --gray-700: #404040;
+        --gray-800: #262626;
+        --gray-900: #171717;
+        --glass: rgba(255,255,255,0.80);
+        --glass-border: rgba(255,255,255,0.45);
+        --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+        --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+        --shadow-lg: 0 20px 25px -5px rgba(0,0,0,0.12);
+        --radius: 0.75rem;
+        --transition: all 0.25s ease;
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    body,html{margin:0;height:100%;font-family:'Inter',sans-serif;background:#fafafa;color:#171717;overflow-x:hidden}
+    a{text-decoration:none;color:inherit}
+
+    .app{display:flex;min-height:100vh}
+    .sidebar{
+        width:260px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+        border-right:1px solid var(--glass-border);padding:2rem 1.5rem;position:fixed;height:100%;z-index:10;
+        box-shadow:var(--shadow-md);transition:var(--transition)
+    }
+    .logo{
+        font-weight:700;font-size:1.5rem;margin-bottom:3rem;display:flex;align-items:center;gap:0.75rem;
+        color:var(--primary)
+    }
+    .logo img{height:40px;width:auto}
+    .nav{display:flex;flex-direction:column;gap:0.5rem}
+    .nav a{
+        display:flex;align-items:center;gap:0.75rem;padding:0.875rem 1rem;border-radius:var(--radius);
+        font-weight:500;transition:var(--transition);position:relative
+    }
+    .nav a:hover,.nav a.active{
+        background:var(--primary);color:#fff;transform:translateX(4px)
+    }
+    .nav a i{font-size:1.25rem}
+
+    .main{margin-left:260px;flex:1;padding:2.5rem}
+    .header{
+        display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5rem
+    }
+    .header h1{
+        font-size:1.75rem;font-weight:700;margin:0;
+        background:linear-gradient(90deg,#5d5feeff,#8b5cf6);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent
+    }
+    .user-menu{display:flex;align-items:center;gap:0.75rem;font-weight:500}
+    .avatar{
+        width:40px;height:40px;border-radius:50%;background:var(--primary);
+        display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600
+    }
+
+    .page-title{margin-bottom:1.5rem}
+    .page-title h2{
+        font-size:1.75rem;font-weight:700;margin:0;
+        background:linear-gradient(90deg,#5d5feeff,#8b5cf6);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent
+    }
+
+    .add-btn{
+        background:var(--primary);color:#fff;padding:0.75rem 1.5rem;
+        border:none;border-radius:50px;font-weight:600;cursor:pointer;
+        box-shadow:var(--shadow-md);transition:var(--transition)
+    }
+    .add-btn:hover{background:var(--primary-light);transform:scale(1.05)}
+
+    .table-container{
+        background:var(--glass);backdrop-filter:blur(12px);
+        border:1px solid var(--glass-border);border-radius:var(--radius);
+        overflow:hidden;box-shadow:var(--shadow-sm)
+    }
+    table{width:100%;border-collapse:collapse}
+    th{background:var(--primary);color:#fff;padding:1rem 1.25rem;text-align:left;font-weight:600}
+    td{padding:1rem 1.25rem;border-bottom:1px solid var(--gray-200)}
+    tr:hover{background:rgba(93,95,254,.08)}
+    .status{
+        padding:0.35rem 0.75rem;border-radius:0.5rem;font-size:0.875rem;font-weight:600
+    }
+    .status.active{background:#d1fae5;color:#065f46}
+    .status.blocked{background:#fee2e2;color:#991b1b}
+
+    .action-btn{
+        cursor:pointer;margin-right:0.75rem;font-size:1.25rem;
+        padding:0.4rem;border-radius:0.5rem;transition:var(--transition)
+    }
+    .action-btn:hover{transform:scale(1.15)}
+    .edit{color:#2563eb}
+    .delete{color:#ef4444}
+    .block{color:#f59e0b}
+    .unblock{color:#10b981}
+
+    .modal{
+        display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+        background:rgba(0,0,0,.5);justify-content:center;align-items:center;z-index:100
+    }
+    .modal-content{
+        background:#fff;padding:2rem;border-radius:var(--radius);width:420px;
+        box-shadow:var(--shadow-lg);backdrop-filter:blur(12px)
+    }
+    .modal-header{margin-bottom:1.5rem}
+    .modal-header h3{font-size:1.5rem;margin:0;color:var(--primary)}
+    .form-group{margin-bottom:1rem}
+    .form-group label{display:block;margin-bottom:0.5rem;font-weight:500}
+    .form-group input,.form-group select{
+        width:100%;padding:0.75rem;border:1px solid var(--gray-200);
+        border-radius:var(--radius);font-size:0.95rem;transition:var(--transition)
+    }
+    .form-group input:focus,.form-group select:focus{
+        outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(93,95,254,.2)
+    }
+    .modal-footer{display:flex;gap:1rem;margin-top:1.5rem}
+    .btn{
+        flex:1;padding:0.75rem;border:none;border-radius:var(--radius);
+        font-weight:600;cursor:pointer;transition:var(--transition)
+    }
+    .btn-primary{background:var(--primary);color:#fff}
+    .btn-primary:hover{background:var(--primary-light)}
+    .btn-secondary{background:var(--gray-200);color:var(--gray-700)}
+    .btn-secondary:hover{background:var(--gray-300)}
+
+    @media(max-width:992px){
+        .sidebar{width:80px;padding:2rem 0.75rem}
+        .sidebar .logo span,.nav a span{display:none}
+        .nav a{justify-content:center}
+        .main{margin-left:80px}
+    }
+    @media(max-width:640px){
+        .sidebar{transform:translateX(-100%)}
+        .main{margin-left:0;padding:1.5rem}
+        .header{flex-direction:column;gap:1rem;align-items:flex-start}
+    }
+</style>
+</head>
+<body>
+
+<div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="logo">
+            <img src="vdt-logo.png" alt="Logo">
+        </div>
+        <nav class="nav">
+            <a href="dashboard.html"><i class="ti ti-layout-dashboard"></i><span>Dashboard</span></a>
+            <a href="manage_users.html" class="active"><i class="ti ti-users"></i><span>Users</span></a>
+            <a href="logs.html"><i class="ti ti-file-analytics"></i><span>Logs</span></a>
+            <a href="settings.html"><i class="ti ti-settings"></i><span>Settings</span></a>
+            <a href="#" onclick="logout()"><i class="ti ti-logout"></i><span>Logout</span></a>
+        </nav>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+        <header class="header">
+            <div class="page-title">
+                <h2>Manage Users</h2>
+            </div>
+            <div class="user-menu">
+                <span>admin@yourcompany.com</span>
+                <div class="avatar">A</div>
+            </div>
+        </header>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+            <button class="add-btn" onclick="openAddModal()">Add New User</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Roll No</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>John Doe</td>
+                        <td>CE00123</td>
+                        <td>Student</td>
+                        <td><span class="status active">Active</span></td>
+                        <td>
+                            <i class="ti ti-edit action-btn edit" onclick="openEditModal('John Doe','CE00123','Student','active')"></i>
+                            <i class="ti ti-trash action-btn delete" onclick="confirmDelete('John Doe')"></i>
+                            <i class="ti ti-ban action-btn block" onclick="toggleBlock('CE00123',false)"></i>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Amit Singh</td>
+                        <td>CE00147</td>
+                        <td>Student</td>
+                        <td><span class="status blocked">Blocked</span></td>
+                        <td>
+                            <i class="ti ti-edit action-btn edit" onclick="openEditModal('Amit Singh','CE00147','Student','blocked')"></i>
+                            <i class="ti ti-trash action-btn delete" onclick="confirmDelete('Amit Singh')"></i>
+                            <i class="ti ti-circle-check action-btn unblock" onclick="toggleBlock('CE00147',true)"></i>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<!-- Add Modal -->
+<div class="modal" id="addModal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Add New User</h3></div>
+        <div class="form-group">
+            <label>Full Name</label>
+            <input id="addName" placeholder="e.g. John Doe">
+        </div>
+        <div class="form-group">
+            <label>Roll No</label>
+            <input id="addRoll" placeholder="e.g. CE00123">
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input id="addPassword" type="password" placeholder="••••••••">
+        </div>
+        <div class="form-group">
+            <label>Role</label>
+            <select id="addRole">
+                <option value="student">Student</option>
+                <option value="admin">Admin</option>
+            </select>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveUser()">Create User</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal" id="editModal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Edit User</h3></div>
+        <div class="form-group">
+            <label>Full Name</label>
+            <input id="editName">
+        </div>
+        <div class="form-group">
+            <label>Roll No</label>
+            <input id="editRoll" readonly>
+        </div>
+        <div class="form-group">
+            <label>Role</label>
+            <select id="editRole">
+                <option value="student">Student</option>
+                <option value="admin">Admin</option>
+            </select>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="updateUser()">Update</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Auth Guard
+    if (!localStorage.getItem('admin_token')) {
+        alert('Unauthorized! Redirecting...');
+        location.href = 'admin_login.html';
+    }
+    function logout() {
+        localStorage.removeItem('admin_token');
+        location.href = 'admin_login.html';
+    }
+
+    // Modal Controls
+    function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
+    function closeAddModal() { document.getElementById('addModal').style.display = 'none'; }
+    function openEditModal(name, roll, role, status) {
+        document.getElementById('editName').value = name;
+        document.getElementById('editRoll').value = roll;
+        document.getElementById('editRole').value = role.toLowerCase();
+        document.getElementById('editModal').style.display = 'flex';
+    }
+    function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
+
+    // CRUD Placeholders
+    function saveUser() {
+        alert('User added! (Connect to backend)');
+        closeAddModal();
+    }
+    function updateUser() {
+        alert('User updated! (Connect to backend)');
+        closeEditModal();
+    }
+    function confirmDelete(name) {
+        if (confirm(`Delete ${name}?`)) alert('User deleted! (Connect to backend)');
+    }
+    function toggleBlock(roll, unblock) {
+        alert(`${unblock?'Unblocked':'Blocked'} ${roll}! (Connect to backend)`);
+    }
+</script>
+</body>
+</html>

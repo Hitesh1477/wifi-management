@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Login | Wi-Fi Management</title>
+
+<style>
+    body {
+        background: linear-gradient(120deg, #3b82f6, #06b6d4);
+        height: 100vh;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-family: Arial, sans-serif;
+    }
+
+    .login-box {
+        background: #fff;
+        width: 350px;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0px 8px 20px rgba(0,0,0,0.12);
+        text-align: center;
+    }
+
+    .login-box img {
+        width: 140px;
+        margin-bottom: 10px;
+    }
+
+    h2 {
+        font-size: 22px;
+        margin-bottom: 15px;
+        color: #1e293b;
+    }
+
+    input {
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 15px;
+    }
+
+    button {
+        width: 100%;
+        padding: 10px;
+        background: #16a34a;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        font-weight: bold;
+        margin-top: 10px;
+    }
+
+    button:hover {
+        background: #15803d;
+    }
+
+    .error {
+        margin-top: 8px;
+        color: red;
+        font-size: 14px;
+    }
+</style>
+
+</head>
+<body>
+
+<div class="login-box">
+    <img src="./vdt-logo.png" alt="College Logo">
+
+    <h2>Admin Login</h2>
+
+    <input type="text" id="username" placeholder="Username">
+    <input type="password" id="password" placeholder="Password">
+
+    <button onclick="adminLogin()">Login</button>
+
+    <div id="error" class="error"></div>
+</div>
+
+<script>
+function adminLogin() {
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+
+    if (!username || !password) {
+        document.getElementById("error").innerText = "Enter username & password";
+        return;
+    }
+
+   fetch("http://127.0.0.1:5000/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.token) {
+            localStorage.setItem("admin_token", data.token);
+            alert("Login Successful ✅");
+            window.location.href = "dashboard.html";
+        } else {
+            document.getElementById("error").innerText = "Invalid credentials ❌";
+        }
+    })
+    .catch(() => {
+        document.getElementById("error").innerText = "Server not responding";
+    });
+}
+</script>
+
+</body>
+</html>
