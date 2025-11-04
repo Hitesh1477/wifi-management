@@ -6,7 +6,7 @@
 
 <style>
     body {
-        background: linear-gradient(120deg, #3b82f6, #06b6d4);
+        /* background: linear-gradient(120deg, #3b82f6, #06b6d4); */
         height: 100vh;
         margin: 0;
         display: flex;
@@ -104,7 +104,7 @@ function adminLogin() {
         if (data.token) {
             localStorage.setItem("admin_token", data.token);
             alert("Login Successful ✅");
-            window.location.href = "dashboard.html";
+            window.location.href = "admin.html";
         } else {
             document.getElementById("error").innerText = "Invalid credentials ❌";
         }
@@ -113,6 +113,25 @@ function adminLogin() {
         document.getElementById("error").innerText = "Server not responding";
     });
 }
+
+function loadDashboardStats() {
+    fetch("http://127.0.0.1:5000/admin/stats", {
+        method: "GET",
+        headers: {
+            "Authorization": "Bearer " + localStorage.getItem("admin_token")
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("totalStudents").innerText = data.total_users;
+        document.getElementById("activeUsers").innerText = data.active_users;
+        document.getElementById("blockedUsers").innerText = data.blocked_users;
+    })
+    .catch(err => console.log("Error loading dashboard:", err));
+}
+
+loadDashboardStats();
+
 </script>
 
 </body>

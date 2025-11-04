@@ -1,0 +1,876 @@
+document.addEventListener("DOMContentLoaded", () => {
+    
+    // --- Mock Database (Simulation) ---
+    const db = {
+        clients: [
+            { id: 1, studentId: '23203A0024', device: 'Student Laptop', ip: '192.168.1.10', data: 4.2, activity: 'Studying (Canvas)', blocked: false },
+            { id: 2, studentId: '23203A0026', device: 'Smart TV', ip: '192.168.1.12', data: 15.8, activity: 'Streaming (Netflix)', blocked: true }
+        ],
+        blockedSites: [
+            "specific-cheating-site.com",
+            "unblock-proxy.net"
+        ],
+        siteCategories: {
+            "Gaming": { 
+                active: true, 
+                sites: ["steampowered.com", "twitch.tv", "roblox.com", "discord.gg", "epicgames.com", "ea.com", "playvalorant.com", "minecraft.net", "battle.net", "ubisoft.com"] 
+            },
+            "Social Media": { 
+                active: false, 
+                sites: ["tiktok.com", "instagram.com", "facebook.com", "twitter.com", "reddit.com", "snapchat.com", "pinterest.com"] 
+            },
+            "Streaming": { 
+                active: false, 
+                sites: ["netflix.com", "hulu.com", "disneyplus.com", "hbomax.com", "primevideo.com", "spotify.com", "peacocktv.com"] 
+            },
+            "File Sharing": { 
+                active: true, 
+                sites: ["thepiratebay.org", "1337x.to", "megaupload.com", "wetransfer.com", "mediafire.com", "rarbg.to"] 
+            },
+            "Proxy/VPN": { 
+                active: true, 
+                sites: ["nordvpn.com", "expressvpn.com", "hidemyass.com", "proxysite.com", "cyberghostvpn.com", "surfshark.com", "privateinternetaccess.com", "protonvpn.me", "tunnelbear.com"] 
+            },
+            // "Adult Content": { 
+            //     active: true, 
+            //     sites: ["placeholder-adult-site.com", "generic-tube-site.net", "example-xxx-video.com"] 
+            // }
+        },
+        bandwidthLimits: {
+            4: "low",
+            6: "low",
+            5: 15 
+        },
+        logs: [
+            { time: '11:25:01 AM', level: 'warn', user: '23203A0025', action: 'High bandwidth detected (25.4 GB)' },
+            { time: '11:24:15 AM', level: 'error', user: 'Unknown (192.168.1.45)', action: 'Failed login attempt (3)' },
+            { time: '11:23:00 AM', level: 'info', user: 'ADMIN', action: 'Blocked user S1026' },
+            { time: '11:20:11 AM', level: 'info', user: '23203A0024', action: 'Connected to network (Student Laptop)' }
+        ],
+        guestNetworkEnabled: true,
+        totalData: 28.7,
+        threatsBlocked: 0,
+    };
+
+    // --- Element Selections (Static) ---
+    const menuItems = document.querySelectorAll(".menu-item");
+    const pageTitle = document.getElementById("page-title");
+    const menuToggle = document.getElementById("menu-toggle");
+    const sidebar = document.getElementById("sidebar");
+    const contentArea = document.getElementById("content-area");
+    const profileMenuToggle = document.getElementById("profile-menu-toggle");
+    const profileDropdown = document.getElementById("profile-dropdown");
+    const notificationBell = document.getElementById("notification-bell");
+    const notificationBadge = document.getElementById("notification-badge");
+    const notificationTray = document.getElementById("notification-tray");
+    const notificationList = document.getElementById("notification-list");
+    const modalOverlay = document.getElementById("edit-modal-overlay");
+    const editClientForm = document.getElementById("edit-client-form");
+
+    // --- App-Scoped Chart Variables ---
+    let myTrafficChart;
+    let trafficInterval;
+
+    // --- Page Loading Logic ---
+    async function loadPage(pageName) {
+        if (trafficInterval) clearInterval(trafficInterval);
+        if (myTrafficChart) myTrafficChart.destroy();
+        
+        try {
+            contentArea.innerHTML = `<div class="loading-spinner"></div>`;
+            const response = await fetch(`pages/${pageName}.html`);
+            if (!response.ok) throw new Error(`Could not load page: ${response.status}`);
+            const html = await response.text();
+            contentArea.innerHTML = html;
+            
+            if (pageName === 'dashboard') initDashboard();
+            else if (pageName === 'clients') initClients();
+            else if (pageName === 'web_filtering') initWebFiltering();
+            else if (pageName === 'bandwidth') initBandwidth();
+            else if (pageName === 'logs') initLogs();
+            else if (pageName === 'settings') initSettings();
+            else if (pageName === 'ap_status') initApStatus();
+            else if (pageName === 'guest_network') initGuestNetwork();
+            else if (pageName === 'reporting') initReporting();
+
+        } catch (error) {
+            console.error("Fetch error:", error);
+            contentArea.innerHTML = `<div class="card"><p>Error: Could not load page content. Make sure you are running this on a local server (e.g., VS Code Live Server).</p></div>`;
+        }
+    }
+
+    // --- Page Initializers (These run after a page is loaded) ---
+    
+    function initDashboard() {
+        const clientCountElement = document.getElementById("client-count");
+        if (clientCountElement) {
+            clientCountElement.textContent = db.clients.filter(c => !c.blocked).length;
+        }
+        const dataCountElement = document.getElementById("data-count");
+        if (dataCountElement) {
+            dataCountElement.textContent = `${db.totalData.toFixed(1)} GB`;
+        }
+        const threatCountElement = document.getElementById("threat-count");
+        if (threatCountElement) {
+            threatCountElement.textContent = db.threatsBlocked;
+        }
+        
+        const logBody = document.getElementById("event-log-body");
+        if(logBody) {
+            logBody.innerHTML = "";
+            db.logs.slice(0, 5).forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${log.time}</td><td><span class="log-level-${log.level}">${log.level.toUpperCase()}</span></td><td>${log.user}</td><td>${log.action}</td>`;
+                logBody.appendChild(tr);
+            });
+        }
+
+        const ctx = document.getElementById('traffic-chart-canvas');
+        if (!ctx) return;
+        const initialLabels = ['-58s', '-48s', '-38s', '-28s', '-18s', '-8s'];
+        const initialDownloadData = [120, 190, 300, 500, 220, 450];
+        const initialUploadData = [30, 40, 20, 50, 80, 75];
+        myTrafficChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: initialLabels, datasets: [
+                { label: 'Download (Mbps)', data: initialDownloadData, borderColor: 'var(--primary-blue)', backgroundColor: 'rgba(0, 92, 158, 0.1)', fill: true, tension: 0.4 },
+                { label: 'Upload (Mbps)', data: initialUploadData, borderColor: 'var(--green)', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4 }
+            ]},
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true }, x: { ticks: { autoSkip: false, maxRotation: 0 } } },
+                interaction: { mode: 'index', intersect: false }
+            }
+        });
+
+        trafficInterval = setInterval(() => {
+            const newDownload = Math.floor(Math.random() * 400) + 100;
+            const newUpload = Math.floor(Math.random() * 50) + 30;
+            const newLabel = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            if (myTrafficChart) {
+                myTrafficChart.data.labels.push(newLabel);
+                myTrafficChart.data.datasets[0].data.push(newDownload);
+                myTrafficChart.data.datasets[1].data.push(newUpload);
+                myTrafficChart.data.labels.shift();
+                myTrafficChart.data.datasets[0].data.shift();
+                myTrafficChart.data.datasets[1].data.shift();
+                myTrafficChart.update();
+            }
+            
+            db.totalData += Math.random() * 0.5;
+            if (dataCountElement) {
+                dataCountElement.textContent = `${db.totalData.toFixed(1)} GB`;
+            }
+
+            if (Math.random() < 0.3) {
+                db.threatsBlocked++;
+                if (threatCountElement) {
+                    threatCountElement.textContent = db.threatsBlocked;
+                }
+                const randomUser = db.clients[Math.floor(Math.random() * db.clients.length)];
+                addLog('error', randomUser.studentId, 'Blocked access to Proxy/VPN');
+            }
+        }, 2000);
+    }
+
+    function initClients() {
+        const clientListBody = document.getElementById("client-list-body");
+        if (!clientListBody) return;
+        clientListBody.innerHTML = "";
+        db.clients.forEach(client => {
+            const statusClass = client.blocked ? "status-blocked" : "status-active";
+            const statusText = client.blocked ? "Blocked" : "Active";
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${client.studentId} (${client.device})</td>
+                <td>${client.ip}</td>
+                <td>${client.data} GB</td>
+                <td>${client.activity}</td>
+                <td class="${statusClass}">${statusText}</td>
+                <td class="action-buttons">
+                    <button class="btn btn-secondary btn-edit" data-id="${client.id}"><i class="fa-solid fa-pencil"></i> Edit</button>
+                    <button class="btn ${client.blocked ? 'btn-success' : 'btn-danger'} btn-block" data-id="${client.id}">
+                        ${client.blocked ? 'Unblock' : 'Block'}
+                    </button>
+                </td>
+            `;
+            clientListBody.appendChild(row);
+        });
+    }
+
+    function initWebFiltering() {
+        const blockedSitesList = document.getElementById("blocked-sites-list");
+        if (!blockedSitesList) return;
+        blockedSitesList.innerHTML = "";
+        db.blockedSites.forEach(url => addBlockedSiteToDOM(url, false));
+        Object.keys(db.siteCategories).forEach(key => {
+            if (db.siteCategories[key].active) {
+                db.siteCategories[key].sites.forEach(site => {
+                    if (!db.blockedSites.includes(site)) addBlockedSiteToDOM(site, true);
+                });
+            }
+        });
+        const categories = document.getElementById("filter-categories");
+        categories.innerHTML = "";
+        Object.keys(db.siteCategories).forEach(key => {
+            const btn = document.createElement("button");
+            btn.className = `filter-toggle ${db.siteCategories[key].active ? 'active' : ''}`;
+            btn.textContent = key;
+            btn.dataset.category = key;
+            categories.appendChild(btn);
+        });
+    }
+
+    function initBandwidth() {
+        const bandwidthListBody = document.getElementById("bandwidth-list-body");
+        if (!bandwidthListBody) return;
+        bandwidthListBody.innerHTML = "";
+        db.clients.forEach(client => {
+            if (client.studentId === 'ADMIN') return;
+            const limit = db.bandwidthLimits[client.id];
+            const isCustom = typeof limit === 'number';
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${client.studentId} (${client.device})</td>
+                <td>${client.data} GB</td>
+                <td>${client.activity}</td> 
+                <td>
+                    <div class="bandwidth-control-cell">
+                        <select class="limit-select" data-id="${client.id}">
+                            <option value="vlow" ${limit === 'vlow' ? 'selected' : ''}>Very Low (2 Mbps)</option>
+                            <option value="low" ${limit === 'low' ? 'selected' : ''}>Low (10 Mbps)</option>
+                            <option value="standard" ${!limit || limit === 'standard' ? 'selected' : ''}>Standard (25 Mbps)</option>
+                            <option value="high" ${limit === 'high' ? 'selected' : ''}>High (100 Mbps)</option>
+                            <option value="unlimited" ${limit === 'unlimited' ? 'selected' : ''}>Unlimited</option>
+                            <option value="custom" ${isCustom ? 'selected' : ''}>Manual...</option>
+                        </select>
+                        <span class="custom-bw-group ${isCustom ? '' : 'hidden'}">
+                            <input type="number" class="custom-bw-input" data-id="${client.id}" value="${isCustom ? limit : '50'}" min="1">
+                            <span>Mbps</span>
+                        </span>
+                    </div>
+                </td>
+                <td class="action-buttons">
+                    <button class="btn ${client.blocked ? 'btn-success' : 'btn-danger'} btn-block" data-id="${client.id}">
+                        ${client.blocked ? 'Unblock' : 'Block'}
+                    </button>
+                </td>
+            `;
+            bandwidthListBody.appendChild(row);
+        });
+    }
+
+    function initLogs() {
+        const logBody = document.getElementById("log-body");
+        if (!logBody) return;
+        logBody.innerHTML = "";
+        db.logs.forEach(log => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${log.time}</td><td><span class="log-level-${log.level}">${log.level.toUpperCase()}</span></td><td>${log.user} / ${log.ip || 'N/A'}</td><td>${log.action}</td>`;
+            logBody.appendChild(tr);
+        });
+    }
+    
+    function initSettings() {
+        // Placeholder
+    }
+
+    function initApStatus() {
+        const apListBody = document.getElementById("ap-list-body");
+        if (!apListBody) return;
+        apListBody.innerHTML = "";
+        db.accessPoints.forEach(ap => {
+            const statusClass = ap.status === "Online" ? "status-online" : "status-offline";
+            const loadClass = ap.load === "High" ? "status-high" : (ap.load === "Medium" ? "status-medium" : "");
+            const row = document.createElement("tr");
+            row.innerHTML = `<td><strong>${ap.location}</strong> (${ap.id})</td><td class="${statusClass}">${ap.status}</td><td>${ap.clients} Devices</td><td class="${loadClass}">${ap.load}</td><td><button class="btn btn-secondary reboot-ap-btn" data-id="${ap.id}" data-location="${ap.location}"><i class="fa-solid fa-sync"></i> Reboot AP</button></td>`;
+            apListBody.appendChild(row);
+        });
+    }
+
+    function initGuestNetwork() {
+        const voucherList = document.getElementById("guest-voucher-list");
+        if (!voucherList) return;
+        
+        const guestToggle = document.getElementById('guest-toggle-cb');
+        const guestStatusText = document.getElementById('guest-status-text');
+        if (guestToggle && guestStatusText) {
+            guestToggle.checked = db.guestNetworkEnabled;
+            guestStatusText.textContent = db.guestNetworkEnabled ? 'Enabled' : 'Disabled';
+        }
+        voucherList.innerHTML = "";
+        db.guestVouchers.forEach(voucher => {
+            const statusText = voucher.status;
+            const isUnused = statusText === "Unused";
+            const statusClass = isUnused ? "status-unused" : "status-claimed";
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${voucher.code}</td>
+                <td>${voucher.duration}</td>
+                <td class="${statusClass}">
+                    ${isUnused ? `<button class="btn-status-unused" data-id="${voucher.id}" title="Click to simulate claiming this voucher">${statusText}</button>` : `<span>${statusText}</span>`}
+                </td>
+                <td class="action-buttons">
+                    <button class="btn-delete-voucher" data-id="${voucher.id}" title="Delete Voucher">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            voucherList.appendChild(tr);
+        });
+    }
+
+    function initReporting() {
+        handleReportRangeChange(document.getElementById('report-range'));
+    }
+
+
+    // --- Global Event Listeners (using delegation on document.body) ---
+    
+    // --- 1. CLICK Listener ---
+    document.body.addEventListener('click', (e) => {
+        
+        if (e.target.closest('#profile-menu-toggle')) {
+            profileDropdown.classList.toggle('active');
+            notificationTray.classList.remove('active');
+        } else if (!e.target.closest('.profile-dropdown')) {
+            profileDropdown.classList.remove('active');
+        }
+        
+        if (e.target.closest('#notification-bell')) {
+            notificationTray.classList.toggle('active');
+            notificationBadge.classList.add('hidden');
+            profileDropdown.classList.remove('active');
+        } else if (!e.target.closest('.notification-dropdown')) {
+            notificationTray.classList.remove('active');
+        }
+
+        const menuItem = e.target.closest('.menu-item');
+        if (menuItem) {
+            e.preventDefault();
+            const pageName = menuItem.getAttribute("data-page");
+            menuItems.forEach(i => i.classList.remove("active"));
+            menuItem.classList.add("active");
+            pageTitle.textContent = menuItem.querySelector("span").textContent;
+            loadPage(pageName);
+            if (window.innerWidth <= 768) sidebar.classList.remove("open");
+        }
+
+        if (e.target.closest('#menu-toggle')) {
+            sidebar.classList.toggle("open");
+        }
+
+        if (e.target.classList.contains('btn-block')) {
+            handleBlockUnblock(e.target);
+        }
+        
+        if (e.target.classList.contains('btn-edit')) {
+            const id = parseInt(e.target.dataset.id);
+            openEditModal(id);
+        }
+        
+        if (e.target.id === 'edit-modal-close-btn' || e.target.id === 'edit-modal-overlay') {
+            closeEditModal();
+        }
+
+        if (e.target.closest('.btn-remove')) {
+            handleRemoveSite(e.target);
+        }
+        
+        if (e.target.classList.contains('filter-toggle')) {
+            handleCategoryToggle(e.target);
+        }
+
+        if (e.target.id === 'reboot-button') {
+            handleReboot("Main Router");
+        }
+        
+        if (e.target.classList.contains('reboot-ap-btn')) {
+            const location = e.target.dataset.location;
+            handleReboot(location);
+        }
+        
+        if (e.target.classList.contains('btn-status-unused')) {
+            const id = parseInt(e.target.dataset.id);
+            const voucher = db.guestVouchers.find(v => v.id === id);
+            if (voucher) {
+                voucher.status = "Claimed by Guest's Phone";
+                addLog('info', 'GUEST', `Voucher ${voucher.code} was claimed.`);
+                initGuestNetwork();
+            }
+        }
+        
+        if (e.target.closest('.btn-delete-voucher')) {
+            const id = parseInt(e.target.closest('.btn-delete-voucher').dataset.id);
+            const voucher = db.guestVouchers.find(v => v.id === id);
+            if (voucher && confirm(`Are you sure you want to delete voucher ${voucher.code}?`)) {
+                db.guestVouchers = db.guestVouchers.filter(v => v.id !== id);
+                addLog('info', 'ADMIN', `Deleted voucher ${voucher.code}`);
+                initGuestNetwork();
+            }
+        }
+        
+        // --- MODIFIED: This is the new Download Button handler ---
+        if (e.target.classList.contains('btn-download-report')) {
+            handleDownloadReport(e.target);
+        }
+    });
+
+    // --- 2. SUBMIT Listener ---
+    document.body.addEventListener('submit', (e) => {
+        if (e.target.id === 'add-client-form') {
+            e.preventDefault();
+            const studentId = document.getElementById('client-id').value;
+            const device = document.getElementById('client-device').value;
+            const ip = document.getElementById('client-ip').value;
+            if (studentId && device && ip) {
+                const newClient = {
+                    id: db.clients.length + 1, studentId, device, ip, data: 0.1, activity: 'Idle', blocked: false
+                };
+                db.clients.push(newClient);
+                db.bandwidthLimits[newClient.id] = 'standard';
+                addLog('info', 'ADMIN', `Added new client ${studentId} (${device})`);
+                initClients();
+                initDashboard();
+                e.target.reset();
+                alert('Client added successfully!');
+            }
+        }
+        
+        if (e.target.id === 'website-block-form') {
+            e.preventDefault();
+            const websiteInput = document.getElementById("website-input");
+            const url = websiteInput.value.trim();
+            if (url && !db.blockedSites.includes(url)) {
+                db.blockedSites.unshift(url);
+                addLog('warn', 'ADMIN', `Manually blocked site: ${url}`);
+                addBlockedSiteToDOM(url, false, true);
+                websiteInput.value = "";
+            } else if (db.blockedSites.includes(url)) {
+                alert('This site is already in the manual block list.');
+            }
+        }
+
+        if (e.target.id === 'network-settings-form') {
+            e.preventDefault();
+            addLog('info', 'ADMIN', 'Network settings saved');
+            alert('Network settings saved successfully! (Demo)');
+        }
+        
+        if (e.target.id === 'edit-client-form') {
+            e.preventDefault();
+            handleEditClient();
+        }
+        
+        if (e.target.id === 'create-voucher-form') {
+            e.preventDefault();
+            const code = document.getElementById('voucher-code-input').value;
+            const limit = document.getElementById('voucher-limit-select').value;
+            if (code && limit) {
+                const newVoucher = {
+                    id: db.guestVouchers.length + 1, code: code, duration: limit, status: 'Unused'
+                };
+                db.guestVouchers.push(newVoucher);
+                addLog('info', 'ADMIN', `Created new voucher: ${code}`);
+                initGuestNetwork();
+                e.target.reset();
+                alert('Guest voucher created successfully!');
+            }
+        }
+        
+        if (e.target.id === 'reporting-form') {
+            e.preventDefault();
+            const type = document.getElementById('report-type').value;
+            const range = document.getElementById('report-range').value;
+            const format = document.getElementById('report-format').value;
+            let reportName = `${range.charAt(0).toUpperCase() + range.slice(1)} ${type} Report`;
+            
+            const { headers, data } = generateReportData(type, range);
+            renderReport(reportName, headers, data, format); 
+            addLog('info', 'ADMIN', `Generated report: ${reportName}`);
+        }
+    });
+    
+    // --- 3. CHANGE Listener ---
+    document.body.addEventListener('change', (e) => {
+        if (e.target.classList.contains('limit-select')) {
+            handleBandwidthChange(e.target);
+        }
+        
+        if (e.target.id === 'guest-toggle-cb') {
+            handleGuestToggle(e.target);
+        }
+        
+        if (e.target.id === 'report-range') {
+            handleReportRangeChange(e.target);
+        }
+    });
+
+    // --- 4. INPUT Listener ---
+    document.body.addEventListener('input', (e) => {
+        if (e.target.classList.contains('custom-bw-input')) {
+            handleCustomBandwidthInput(e.target);
+        }
+    });
+    
+    // --- Event Handler Functions ---
+
+    function handleBlockUnblock(button) {
+        const id = parseInt(button.getAttribute("data-id"));
+        const client = db.clients.find(c => c.id === id);
+        if (!client) return;
+        if (client.blocked) {
+            if (confirm(`Are you sure you want to unblock ${client.studentId} (${client.device})?`)) {
+                client.blocked = false;
+                addLog('info', 'ADMIN', `Unblocked user ${client.studentId}`);
+                if (document.getElementById('clients-page')) initClients(); 
+                if (document.getElementById('bandwidth-page')) initBandwidth();
+                initDashboard();
+            }
+        } else {
+            if (confirm(`Are you sure you want to block ${client.studentId} (${client.device})?`)) {
+                client.blocked = true;
+                addLog('warn', 'ADMIN', `Blocked user ${client.studentId}`);
+                if (document.getElementById('clients-page')) initClients();
+                if (document.getElementById('bandwidth-page')) initBandwidth();
+                initDashboard();
+            }
+        }
+    }
+    
+    function handleEditClient() {
+        const id = parseInt(document.getElementById('edit-client-id').value);
+        const client = db.clients.find(c => c.id === id);
+        if (!client) return;
+        client.studentId = document.getElementById('edit-client-id-text').value;
+        client.device = document.getElementById('edit-client-device').value;
+        client.ip = document.getElementById('edit-client-ip').value;
+        addLog('info', 'ADMIN', `Updated details for ${client.studentId}`);
+        closeEditModal();
+        initClients();
+    }
+    
+    function openEditModal(id) {
+        const client = db.clients.find(c => c.id === id);
+        if (!client) return;
+        document.getElementById('edit-client-id').value = id;
+        document.getElementById('edit-client-id-text').value = client.studentId;
+        document.getElementById('edit-client-device').value = client.device;
+        document.getElementById('edit-client-ip').value = client.ip;
+        modalOverlay.classList.remove('hidden');
+    }
+    
+    function closeEditModal() {
+        modalOverlay.classList.add('hidden');
+    }
+
+    function handleRemoveSite(button) {
+        const li = button.closest("li");
+        const url = li.querySelector("span").textContent;
+        let index = db.blockedSites.indexOf(url);
+        if (index > -1) db.blockedSites.splice(index, 1);
+        let isInCategory = false;
+        Object.keys(db.siteCategories).forEach(key => {
+            if (db.siteCategories[key].active && db.siteCategories[key].sites.includes(url)) isInCategory = true;
+        });
+        if(isInCategory) {
+            alert(`Cannot manually remove ${url}. It is part of an active blocked category. Disable the category first.`);
+            return;
+        }
+        addLog('info', 'ADMIN', `Removed ${url} from block list`);
+        li.remove();
+    }
+    
+    function handleCategoryToggle(button) {
+        const category = button.dataset.category;
+        db.siteCategories[category].active = !db.siteCategories[category].active;
+        if (db.siteCategories[category].active) {
+            addLog('warn', 'ADMIN', `Enabled category block: ${category}`);
+        } else {
+            addLog('info', 'ADMIN', `Disabled category block: ${category}`);
+        }
+        initWebFiltering();
+    }
+
+    function handleReboot(location) {
+        if (confirm(`Are you sure you want to reboot ${location}? This may disconnect users.`)) {
+            addLog('error', 'ADMIN', `!!! REBOOT INITIATED: ${location} !!!`);
+            alert(`Simulating reboot for ${location}...`);
+        }
+    }
+
+    function handleBandwidthChange(selectElement) {
+        const id = parseInt(selectElement.dataset.id);
+        const client = db.clients.find(c => c.id === id);
+        const limit = selectElement.value;
+        const customInputSpan = selectElement.closest('.bandwidth-control-cell').querySelector('.custom-bw-group');
+        if (limit === 'custom') {
+            customInputSpan.classList.remove('hidden');
+            const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10);
+            db.bandwidthLimits[id] = customValue;
+            addLog('info', 'ADMIN', `Set bandwidth for ${client.studentId} to ${customValue} Mbps`);
+        } else {
+            customInputSpan.classList.add('hidden');
+            db.bandwidthLimits[id] = limit;
+            addLog('info', 'ADMIN', `Set bandwidth for ${client.studentId} to ${limit}`);
+        }
+    }
+
+    function handleCustomBandwidthInput(inputElement) {
+        const id = parseInt(inputElement.dataset.id);
+        const client = db.clients.find(c => c.id === id);
+        const customValue = parseInt(inputElement.value, 10);
+        if (!isNaN(customValue) && customValue > 0) {
+            db.bandwidthLimits[id] = customValue;
+        }
+    }
+    
+    function handleGenerateVouchers() {
+        let newVouchers = [];
+        for (let i = 0; i < 5; i++) {
+            const code = `GUEST-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+            newVouchers.push({ id: db.guestVouchers.length + i + 1, code: code, duration: "24 hours", status: "Unused" });
+        }
+        db.guestVouchers = [...newVouchers, ...db.guestVouchers];
+        initGuestNetwork();
+        addLog('info', 'ADMIN', 'Generated 5 new guest vouchers');
+    }
+    
+    function handleGuestToggle(checkbox) {
+        const isChecked = checkbox.checked;
+        db.guestNetworkEnabled = isChecked;
+        const statusText = document.getElementById('guest-status-text');
+        if (statusText) {
+            statusText.textContent = isChecked ? 'Enabled' : 'Disabled';
+        }
+        if (isChecked) {
+            addLog('info', 'ADMIN', 'Guest Network Enabled');
+        } else {
+            addLog('warn', 'ADMIN', 'Guest Network Disabled');
+        }
+    }
+    
+    function handleReportRangeChange(selectElement) {
+        if (!selectElement) return;
+        const value = selectElement.value;
+        const dateGroup = document.getElementById('date-picker-group');
+        const dateLabel = document.getElementById('date-picker-label');
+        const dateDaily = document.getElementById('report-date-daily');
+        const dateWeekly = document.getElementById('report-date-weekly');
+        const dateMonthly = document.getElementById('report-date-monthly');
+
+        if (!dateGroup || !dateLabel || !dateDaily || !dateWeekly || !dateMonthly) return;
+
+        if (value === 'daily') {
+            dateGroup.classList.remove('hidden');
+            dateLabel.textContent = 'Select Date';
+            dateDaily.classList.remove('hidden');
+            dateWeekly.classList.add('hidden');
+            dateMonthly.classList.add('hidden');
+        } else if (value === 'weekly') {
+            dateGroup.classList.remove('hidden');
+            dateLabel.textContent = 'Select Week';
+            dateDaily.classList.add('hidden');
+            dateWeekly.classList.remove('hidden');
+            dateMonthly.classList.add('hidden');
+        } else { // monthly
+            dateGroup.classList.remove('hidden');
+            dateLabel.textContent = 'Select Month';
+            dateDaily.classList.add('hidden');
+            dateWeekly.classList.add('hidden');
+            dateMonthly.classList.remove('hidden');
+        }
+    }
+    
+    // --- NEW: Download Report Function ---
+    function handleDownloadReport(button) {
+        const format = button.dataset.format;
+        const title = button.dataset.title;
+        const filename = title.replace(/ /g, '_');
+        
+        const table = button.closest('.report-result-card').querySelector('table');
+        
+        const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent);
+        const data = [...table.querySelectorAll('tbody tr')].map(tr => {
+            return [...tr.querySelectorAll('td')].map(td => td.textContent);
+        });
+
+        if (format === 'PDF') {
+            downloadPDF(filename, title, headers, data);
+        } else { // CSV
+            downloadCSV(filename, headers, data);
+        }
+    }
+
+    // --- Utility Functions ---
+    function addBlockedSiteToDOM(url, isCategorySite, prepend = false) {
+        const blockedSitesList = document.getElementById("blocked-sites-list");
+        if (!blockedSitesList) return;
+        const li = document.createElement("li");
+        li.innerHTML = `<span>${url}</span> ${isCategorySite ? `<small style="color: var(--text-secondary);">(Blocked by category)</small>` : `<button class="btn btn-remove"><i class="fa-solid fa-trash"></i></button>`}`;
+        if (prepend) {
+            blockedSitesList.prepend(li);
+        } else {
+            blockedSitesList.appendChild(li);
+        }
+    }
+    
+    function addLog(level, user, action) {
+        const time = new Date().toLocaleTimeString('en-US', { hour12: true });
+        const ip = db.clients.find(c => c.studentId === user)?.ip;
+        db.logs.unshift({ time, level, user, ip, action });
+        if (db.logs.length > 100) db.logs.pop(); 
+        if (level === 'warn' || level === 'error') {
+            addNotification(level, `${user}: ${action}`);
+        }
+        if(document.getElementById('log-page')) initLogs();
+        if(document.getElementById('dashboard-page')) initDashboard();
+    }
+    
+    function addNotification(level, message) {
+        notificationBadge.classList.remove('hidden');
+        if (notificationList.querySelector('.empty-state')) {
+            notificationList.innerHTML = '';
+        }
+        const li = document.createElement('li');
+        li.innerHTML = `<strong class="level-${level}">${level.toUpperCase()}</strong>: ${message}`;
+        notificationList.prepend(li);
+        if (notificationList.children.length > 5) {
+            notificationList.removeChild(notificationList.lastChild);
+        }
+    }
+    
+    function initNotificationTray() {
+        notificationList.innerHTML = '';
+        const importantLogs = db.logs.filter(log => log.level === 'warn' || log.level === 'error').slice(0, 5);
+        if (importantLogs.length === 0) {
+            notificationList.innerHTML = '<li class="empty-state">No new notifications</li>';
+        } else {
+            importantLogs.forEach(log => {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong class="level-${log.level}">${log.level.toUpperCase()}</strong>: ${log.user}: ${log.action}`;
+                notificationList.appendChild(li);
+            });
+        }
+    }
+
+    function generateReportData(type, range) {
+        let headers = [];
+        let data = [];
+        
+        switch (type) {
+            case 'Top Bandwidth Users':
+                headers = ['Rank', 'Student ID', 'Device', 'Data Used (GB)'];
+                data = [...db.clients]
+                    .filter(c => c.studentId !== 'ADMIN')
+                    .sort((a, b) => b.data - a.data)
+                    .slice(0, 5)
+                    .map((client, index) => [
+                        `#${index + 1}`,
+                        client.studentId,
+                        client.device,
+                        `${client.data} GB`
+                    ]);
+                break;
+            case 'Blocked Site Activity':
+                headers = ['Website', 'Category', 'Attempts (Simulated)'];
+                let allBlocked = [...db.blockedSites];
+                Object.keys(db.siteCategories).forEach(key => {
+                    if (db.siteCategories[key].active) {
+                        db.siteCategories[key].sites.forEach(site => {
+                            if (!allBlocked.includes(site)) allBlocked.push(site);
+                        });
+                    }
+                });
+                data = allBlocked.map(site => [
+                    site,
+                    Object.keys(db.siteCategories).find(key => db.siteCategories[key].sites.includes(site)) || 'Manual',
+                    Math.floor(Math.random() * 500) + 50
+                ]).sort((a, b) => b[2] - a[2]);
+                break;
+            case 'Full Network Audit':
+                headers = ['Time', 'Level', 'User', 'Action'];
+                data = db.logs.slice(0, 20).map(log => [
+                    log.time,
+                    log.level.toUpperCase(),
+                    log.user,
+                    log.action
+                ]);
+                break;
+        }
+        return { headers, data };
+    }
+
+    function renderReport(title, headers, data, format) {
+        const resultsArea = document.getElementById('report-results-area');
+        if (!resultsArea) return;
+        
+        let tableHTML = `<table class="client-table"><thead><tr>`;
+        headers.forEach(h => tableHTML += `<th>${h}</th>`);
+        tableHTML += `</tr></thead><tbody>`;
+        
+        data.forEach(row => {
+            tableHTML += `<tr>`;
+            row.forEach(cell => tableHTML += `<td>${cell}</td>`);
+            tableHTML += `</tr>`;
+        });
+        tableHTML += `</tbody></table></div>`;
+
+        const card = document.createElement('div');
+        card.className = 'card report-result-card';
+        card.innerHTML = `
+            <div class="report-result-header">
+                <h3>${title}</h3>
+                <button class="btn btn-success btn-download-report" data-format="${format}" data-title="${title.replace(/ /g, '_')}">
+                    <i class="fa-solid fa-download"></i> Download ${format === 'CSV' ? 'Excel (.csv)' : 'PDF'}
+                </button>
+            </div>
+            <div style="overflow-x: auto;">
+                ${tableHTML}
+            </div>
+        `;
+        
+        resultsArea.prepend(card);
+    }
+    
+    // --- MODIFIED: This function is now fixed ---
+    function downloadCSV(filename, headers, data) {
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += headers.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",") + "\r\n";
+        data.forEach(rowArray => {
+            let row = rowArray.map(cell => `"${cell.toString().replace(/"/g, '""')}"`).join(",");
+            csvContent += row + "\r\n";
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `${filename}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function downloadPDF(filename, title, headers, data) {
+        try {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.text(title.replace(/_/g, ' '), 14, 20);
+            doc.autoTable({
+                head: [headers],
+                body: data,
+                startY: 25,
+            });
+            
+            doc.save(`${filename}.pdf`);
+        } catch (e) {
+            console.error(e);
+            alert("Error: Could not generate PDF. jsPDF library may not be loaded.");
+        }
+    }
+
+    // --- Initial Load ---
+    loadPage('dashboard');
+    initNotificationTray();
+});
