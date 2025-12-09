@@ -2,7 +2,7 @@
 
  ✅ 1. Clone the Repository
 
-git clone https://github.com/<your-username>/<repo-name>.git
+git clone https://github.com/Hitesh1477/wifi-management.git
 
 ✅ 2. Backend Setup (Flask)
 Go to backend folder
