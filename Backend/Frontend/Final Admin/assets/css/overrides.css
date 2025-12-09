@@ -1,0 +1,140 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  color: #222;
+  background: #f5f7f8;
+}
+.page,
+.content,
+.main-content {
+  box-sizing: border-box;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.sidebar,
+.nav {
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 5;
+}
+.sidebar .nav-item a {
+  white-space: nowrap;
+}
+.container-fluid,
+.app-wrapper {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+/* card/table fixes */
+.card {
+  width: 100%;
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 6px rgba(20, 30, 40, 0.05);
+  margin-bottom: 20px;
+}
+.table-container {
+  margin-top: 12px;
+  overflow: auto;
+}
+/* force table layout readable */
+.clients-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+.clients-table th,
+.clients-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(20, 30, 40, 0.04);
+}
+.clients-table thead th {
+  font-weight: 700;
+  font-size: 13px;
+  color: #222;
+  letter-spacing: 0.4px;
+}
+/* Forms (restore sensible widths) */
+.card form .form-row,
+.form-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.card input[type="text"],
+.card input[type="email"],
+.card input[type="search"],
+input,
+textarea,
+select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #d6dbe0;
+  border-radius: 4px;
+  background: #fff;
+  outline: none;
+}
+.card .form-row > * {
+  flex: 1 1 220px;
+}
+/* Status / buttons */
+.status-active {
+  color: #1e8f4b;
+  font-weight: 600;
+}
+.status-blocked {
+  color: #c0392b;
+  font-weight: 600;
+}
+.btn {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+.btn-edit {
+  background: #444;
+  color: #fff;
+}
+.btn-block {
+  background: #e74c3c;
+  color: #fff;
+}
+.btn-unblock {
+  background: #27ae60;
+  color: #fff;
+}
+/* hide the generic page-load error (will be logged to console instead) */
+.page-load-error,
+.fragment-error {
+  display: none !important;
+}
+/* small responsive fix */
+@media (max-width: 900px) {
+  .sidebar {
+    position: relative;
+    width: 64px;
+    min-width: 64px;
+  }
+  .page,
+  .main-content {
+    padding: 12px;
+  }
+  .card .form-row > * {
+    flex: 1 1 100%;
+  }
+}

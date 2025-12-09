@@ -67,3 +67,26 @@ def admin_stats():
         "active_users": active_users,
         "blocked_users": blocked_users
     }), 200
+
+@admin_routes.route('/admin/clients', methods=['GET'])
+@admin_required
+def admin_clients():
+    # Return list of non-admin users (do not expose passwords)
+    clients_cursor = users_collection.find({"role": {"$ne": "admin"}}, {"password": 0})
+    clients = []
+    for c in clients_cursor:
+        c['_id'] = str(c.get('_id'))
+        clients.append(c)
+    return jsonify({"clients": clients}), 200
+
+@admin_routes.route('/admin/logs', methods=['GET'])
+@admin_required
+def admin_logs():
+    # If you have a 'logs' collection, return recent logs; otherwise return empty list
+    logs = []
+    if 'logs' in db.list_collection_names():
+        logs_cursor = db['logs'].find().sort([('_id', -1)]).limit(100)
+        for l in logs_cursor:
+            l['_id'] = str(l.get('_id'))
+            logs.append(l)
+    return jsonify({"logs": logs}), 200

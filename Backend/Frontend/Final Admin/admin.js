@@ -125,23 +125,11 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
 
-        const ctx = document.getElementById('traffic-chart-canvas');
-        if (!ctx) return;
-        const initialLabels = ['-58s', '-48s', '-38s', '-28s', '-18s', '-8s'];
-        const initialDownloadData = [120, 190, 300, 500, 220, 450];
-        const initialUploadData = [30, 40, 20, 50, 80, 75];
-        myTrafficChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: initialLabels, datasets: [
-                { label: 'Download (Mbps)', data: initialDownloadData, borderColor: 'var(--primary-blue)', backgroundColor: 'rgba(0, 92, 158, 0.1)', fill: true, tension: 0.4 },
-                { label: 'Upload (Mbps)', data: initialUploadData, borderColor: 'var(--green)', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4 }
-            ]},
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true }, x: { ticks: { autoSkip: false, maxRotation: 0 } } },
-                interaction: { mode: 'index', intersect: false }
-            }
-        });
+        const canvas = document.getElementById('traffic-chart-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            renderTrafficChart(ctx, /* your chartData */);
+        }
 
         trafficInterval = setInterval(() => {
             const newDownload = Math.floor(Math.random() * 400) + 100;
@@ -425,11 +413,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const ip = document.getElementById('client-ip').value;
             if (studentId && device && ip) {
                 const newClient = {
-                    id: db.clients.length + 1, studentId, device, ip, data: 0.1, activity: 'Idle', blocked: false
+                    id: db.clients.length + 1, studentId, ip, data: 0.1, activity: 'Idle', blocked: false
                 };
                 db.clients.push(newClient);
                 db.bandwidthLimits[newClient.id] = 'standard';
-                addLog('info', 'ADMIN', `Added new client ${studentId} (${device})`);
+                addLog('info', 'ADMIN', `Added new client ${studentId}`);
                 initClients();
                 initDashboard();
                 e.target.reset();
@@ -870,7 +858,213 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    /**
+     * Ensure the clients table exists inside the clients page fragment.
+     * Returns the <tbody> element to populate.
+     */
+    function ensureClientsTableBody() {
+        // Try common ids first
+        let tbody = document.getElementById('clients-table-body') || document.getElementById('client-list-body');
+        if (tbody) return tbody;
+
+        // Find the clients page container in the DOM
+        const clientsSection = document.getElementById('clients-page') || document.querySelector('.page#clients-page');
+        const container = clientsSection || document.querySelector('.table-container') || document.body;
+
+        // Create table markup and append
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
+          <h3>All Connected Clients</h3>
+          <div class="table-responsive">
+            <table class="clients-table">
+              <thead>
+                <tr>
+                  <th>STUDENT / DEVICE</th>
+                  <th>IP ADDRESS</th>
+                  <th>DATA USAGE (24H)</th>
+                  <th>CURRENT ACTIVITY (SIMULATED)</th>
+                  <th>STATUS</th>
+                  <th>ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="clients-table-body"></tbody>
+            </table>
+          </div>
+        `;
+        container.appendChild(wrapper);
+        return document.getElementById('clients-table-body');
+    }
+
+    // make function global (existing loadClientsData implementation may be present)
+    window.loadClientsData = async function loadClientsData() {
+        const tbody = ensureClientsTableBody();
+        if (!tbody) return console.warn('unable to create/find clients table body');
+
+        const token = localStorage.getItem('admin_token');
+        if (!token) {
+            console.warn('No admin token found; will retry in 2s');
+            setTimeout(loadClientsData, 2000);
+            return;
+        }
+
+        try {
+            const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (!res.ok) return console.error('Failed to fetch clients', res.status);
+            const { clients } = await res.json();
+            if (!Array.isArray(clients)) return console.warn('Invalid clients response', clients);
+
+            tbody.innerHTML = '';
+            clients.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${(c.roll_no || c.name || 'N/A')}</td>
+                    <td>${c.ip || 'N/A'}</td>
+                    <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                    <td>${c.activity || 'Idle'}</td>
+                    <td>${c.blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editClient('${c._id}')">Edit</button>
+                        <button onclick="toggleBlock('${c._id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            console.log('Table populated with', clients.length, 'clients');
+        } catch (err) {
+            console.error('Error loading clients:', err);
+        }
+    };
+
     // --- Initial Load ---
     loadPage('dashboard');
     initNotificationTray();
+
+    // Fetch real admin stats & clients/logs from backend if admin token is present
+    fetchAndApplyAdminData().catch(err => console.warn("Admin fetch failed:", err));
+});
+
+async function fetchAndApplyAdminData() {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return; // not logged in as admin
+
+    const headers = { "Authorization": "Bearer " + token };
+
+    try {
+        const [statsRes, clientsRes, logsRes] = await Promise.all([
+            fetch("http://127.0.0.1:5000/admin/stats", { headers }),
+            fetch("http://127.0.0.1:5000/admin/clients", { headers }),
+            fetch("http://127.0.0.1:5000/admin/logs", { headers })
+        ]);
+
+        if (statsRes.ok) {
+            const stats = await statsRes.json();
+            const clientCountElement = document.getElementById("client-count");
+            if (clientCountElement && typeof stats.client_count !== 'undefined') {
+                clientCountElement.textContent = stats.client_count;
+            }
+            const dataCountElement = document.getElementById("data-count");
+            if (dataCountElement && typeof stats.total_data !== 'undefined') {
+                dataCountElement.textContent = `${stats.total_data} GB`;
+            }
+            const threatCountElement = document.getElementById("threat-count");
+            if (threatCountElement && typeof stats.threats_blocked !== 'undefined') {
+                threatCountElement.textContent = stats.threats_blocked;
+            }
+        }
+
+        if (clientsRes.ok) {
+            const clientsJson = await clientsRes.json();
+            const clients = Array.isArray(clientsJson.clients) ? clientsJson.clients : clientsJson;
+            const tbody = document.getElementById('clients-table-body') || document.getElementById('client-list-body');
+            if (tbody) {
+                tbody.innerHTML = '';
+                clients.forEach(c => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${(c.roll_no || c.name || 'N/A')}</td>
+                        <td>${c.ip || 'N/A'}</td>
+                        <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                        <td>${c.activity || 'Idle'}</td>
+                        <td>${c.blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                        <td>
+                            <button class="btn-edit" onclick="editClient('${c._id || c.id}')">Edit</button>
+                            <button onclick="toggleBlock('${c._id || c.id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        if (logsRes.ok) {
+            const logsJson = await logsRes.json();
+            const logs = Array.isArray(logsJson.logs) ? logsJson.logs : logsJson;
+            const logBody = document.getElementById('log-body') || document.getElementById('event-log-body');
+            if (logBody) {
+                logBody.innerHTML = '';
+                logs.slice(0, 50).forEach(log => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${log.time || ''}</td><td><span class="log-level-${log.level || 'info'}">${(log.level||'').toUpperCase()}</span></td><td>${log.user || ''}</td><td>${log.action || ''}</td>`;
+                    logBody.appendChild(tr);
+                });
+            }
+        }
+    } catch (err) {
+        console.warn("fetchAndApplyAdminData error:", err);
+    }
+}
+
+/**
+ * Safely load an HTML fragment into container. Tries two relative paths and never leaves a visible error box.
+ * Usage: safeLoadFragment('pages/clients.html', '#page-content')
+ */
+async function safeLoadFragment(fragmentPath, containerSelector) {
+    const container = document.querySelector(containerSelector || '#page-content') || document.body;
+    const errorCard = document.querySelector('.page-load-error') || document.querySelector('.card .error');
+    // hide any visible error card right away (we will log instead)
+    if (errorCard) errorCard.style.display = 'none';
+
+    const tryPaths = [
+        fragmentPath,
+        '.' + (fragmentPath.startsWith('/') ? fragmentPath : '/' + fragmentPath),
+        './pages/' + fragmentPath.replace(/^.*pages\//, '').replace(/^\//, ''),
+    ];
+
+    for (const p of tryPaths) {
+        try {
+            const res = await fetch(p, { cache: 'no-store' });
+            if (!res.ok) {
+                console.debug('safeLoadFragment: fetch failed', p, res.status);
+                continue;
+            }
+            const html = await res.text();
+            container.innerHTML = html;
+            // run DOMContentLoaded-style init if the fragment includes a <script> without src
+            // small helper: evaluate inline scripts inside the fetched fragment
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            tmp.querySelectorAll('script').forEach(s => {
+                if (!s.src) {
+                    try { new Function(s.textContent)(); } catch(e) { console.error('fragment inline script error', e); }
+                }
+            });
+            console.log('safeLoadFragment: loaded', p);
+            return true;
+        } catch (err) {
+            console.debug('safeLoadFragment error for', p, err);
+        }
+    }
+    // fallback: leave the page intact, log reason (no visible big error)
+    console.warn('safeLoadFragment: could not load fragment', fragmentPath);
+    return false;
+}
+
+// Example: replace direct fragment loads with safeLoadFragment calls
+document.addEventListener('DOMContentLoaded', () => {
+    // ...existing init...
+    // when loading the clients/dashboard fragments use:
+    // safeLoadFragment('pages/clients.html', '#page-content');
+    // safeLoadFragment('pages/dashboard.html', '#page-content');
 });
