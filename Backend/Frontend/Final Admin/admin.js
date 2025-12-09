@@ -1021,43 +1021,53 @@ async function fetchAndApplyAdminData() {
  * Usage: safeLoadFragment('pages/clients.html', '#page-content')
  */
 async function safeLoadFragment(fragmentPath, containerSelector) {
-    const container = document.querySelector(containerSelector || '#page-content') || document.body;
-    const errorCard = document.querySelector('.page-load-error') || document.querySelector('.card .error');
-    // hide any visible error card right away (we will log instead)
-    if (errorCard) errorCard.style.display = 'none';
+    const container = document.querySelector(containerSelector || '#content-area') || document.getElementById('content-area') || document.body;
+    // hide any visible error card
+    const errEl = document.querySelector('.page-load-error, .fragment-error');
+    if (errEl) errEl.style.display = 'none';
 
-    const tryPaths = [
+    // Try a few sensible relative paths (most robust)
+    const candidates = [
         fragmentPath,
-        '.' + (fragmentPath.startsWith('/') ? fragmentPath : '/' + fragmentPath),
-        './pages/' + fragmentPath.replace(/^.*pages\//, '').replace(/^\//, ''),
-    ];
+        './' + fragmentPath,
+        fragmentPath.replace(/^\.\//, ''),
+        (fragmentPath.startsWith('pages/') ? fragmentPath : 'pages/' + fragmentPath),
+        './pages/' + fragmentPath.replace(/^pages\//, '')
+    ].map(p => p.replace(/\/+/g, '/')); // normalize
 
-    for (const p of tryPaths) {
+    for (const p of candidates) {
         try {
-            const res = await fetch(p, { cache: 'no-store' });
-            if (!res.ok) {
-                console.debug('safeLoadFragment: fetch failed', p, res.status);
+            console.debug('safeLoadFragment: trying', p);
+            const r = await fetch(p, { cache: 'no-store' });
+            if (!r.ok) {
+                console.debug(`safeLoadFragment: ${p} returned ${r.status}`);
                 continue;
             }
-            const html = await res.text();
+            const html = await r.text();
             container.innerHTML = html;
-            // run DOMContentLoaded-style init if the fragment includes a <script> without src
-            // small helper: evaluate inline scripts inside the fetched fragment
+
+            // Execute inline scripts inside the fetched HTML (best-effort)
             const tmp = document.createElement('div');
             tmp.innerHTML = html;
             tmp.querySelectorAll('script').forEach(s => {
                 if (!s.src) {
-                    try { new Function(s.textContent)(); } catch(e) { console.error('fragment inline script error', e); }
+                    try { new Function(s.textContent)(); } catch (e) { console.error('fragment inline script error', e); }
+                } else {
+                    // Optionally load external scripts if necessary
+                    const ext = document.createElement('script');
+                    ext.src = s.src;
+                    document.head.appendChild(ext);
                 }
             });
-            console.log('safeLoadFragment: loaded', p);
+
+            console.info('safeLoadFragment: loaded', p);
             return true;
         } catch (err) {
-            console.debug('safeLoadFragment error for', p, err);
+            console.warn('safeLoadFragment fetch error for', p, err);
         }
     }
-    // fallback: leave the page intact, log reason (no visible big error)
-    console.warn('safeLoadFragment: could not load fragment', fragmentPath);
+
+    console.warn('safeLoadFragment: could not load any candidate for', fragmentPath, 'tried', candidates);
     return false;
 }
 
@@ -1068,3 +1078,44 @@ document.addEventListener('DOMContentLoaded', () => {
     // safeLoadFragment('pages/clients.html', '#page-content');
     // safeLoadFragment('pages/dashboard.html', '#page-content');
 });
+
+// Add this near the top of admin.js (before initDashboard uses it)
+function renderTrafficChart(ctx, chartData) {
+  // destroy previous chart if present
+  if (window.myTrafficChart && typeof window.myTrafficChart.destroy === 'function') {
+    window.myTrafficChart.destroy();
+  }
+
+  // If caller did not pass chartData, make a small fallback dataset
+  if (!chartData) {
+    const labels = Array.from({length: 8}, (_, i) => {
+      const d = new Date(Date.now() - (7 - i) * 2000);
+      return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+    });
+    chartData = {
+      labels,
+      datasets: [
+        { label: 'Download (KB/s)', backgroundColor: 'rgba(54,162,235,0.2)', borderColor: 'rgba(54,162,235,1)', data: labels.map(()=> Math.floor(Math.random()*400)+50), fill: true },
+        { label: 'Upload (KB/s)', backgroundColor: 'rgba(255,99,132,0.1)', borderColor: 'rgba(255,99,132,1)', data: labels.map(()=> Math.floor(Math.random()*80)+10), fill: true }
+      ]
+    };
+  }
+
+  window.myTrafficChart = new Chart(ctx, {
+    type: 'line',
+    data: chartData,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      stacked: false,
+      plugins: {
+        legend: { position: 'top' }
+      },
+      scales: {
+        x: { display: true },
+        y: { display: true, beginAtZero: true }
+      }
+    }
+  });
+}

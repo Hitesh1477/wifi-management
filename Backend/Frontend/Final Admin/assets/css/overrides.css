@@ -3,36 +3,78 @@ body {
   height: 100%;
   margin: 0;
   padding: 0;
-  font-family: "Helvetica Neue", Arial, sans-serif;
-  color: #222;
-  background: #f5f7f8;
+  overflow: hidden; /* prevent body scroll so only main-content scrolls */
 }
-.page,
-.content,
-.main-content {
-  box-sizing: border-box;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px;
-}
-.sidebar,
-.nav {
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
-  box-sizing: border-box;
-  position: relative;
-  z-index: 5;
-}
-.sidebar .nav-item a {
-  white-space: nowrap;
-}
-.container-fluid,
-.app-wrapper {
+
+.dashboard-container {
   display: flex;
-  align-items: flex-start;
-  min-height: 100vh;
+  height: 100vh; /* full viewport */
+  width: 100%;
+  overflow: hidden;
 }
+
+/* Sidebar remains fixed height on the left */
+.sidebar {
+  flex: 0 0 240px;
+  height: 100vh;
+  overflow: auto;
+  position: fixed;  /* Change from relative to fixed */
+  top: 72px;        /* Match our new header height */
+  left: 0;
+  width: 240px;
+  z-index: 100;
+}
+
+/* Main area scrolls internally */
+.main-content {
+  flex: 1 1 auto;
+  height: 100vh;
+  overflow-y: auto; /* only this scrolls */
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  padding: 28px 32px;
+  margin-left: 240px;  /* Add this line */
+  margin-top: 72px;     /* Add this line */
+}
+
+/* --- Header / Content spacing fixes --- */
+/* Set a stable header height and keep it visible (sticky) */
+.header {
+  height: 72px;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  box-sizing: border-box;
+  background: var(--page-bg, #fff);
+  z-index: 10;
+}
+
+/* Ensure content below header has comfortable gap */
+.content-area {
+  padding-top: 18px; /* space between header and content */
+  box-sizing: border-box;
+  min-height: calc(100vh - 72px);
+}
+
+/* Make inner page containers avoid sitting under the sticky header */
+.main-content > .content-area,
+.main-content > .card,
+.main-content > section {
+  margin-top: 0;
+}
+
+/* If any fragment injects a top margin, cap it so header isn't overlapped */
+.content-area > * {
+  margin-top: 0 !important;
+}
+
+/* Responsive tweak: smaller header on narrow screens */
+@media (max-width: 900px) {
+  .header { height: 64px; min-height: 64px; padding: 0 12px; }
+  .content-area { padding-top: 12px; min-height: calc(100vh - 64px); }
+}
+
 /* card/table fixes */
 .card {
   width: 100%;
@@ -57,6 +99,7 @@ body {
   padding: 10px 12px;
   vertical-align: middle;
   border-bottom: 1px solid rgba(20, 30, 40, 0.04);
+  font-size: 14px;
 }
 .clients-table thead th {
   font-weight: 700;
@@ -86,6 +129,7 @@ select {
   border-radius: 4px;
   background: #fff;
   outline: none;
+  font-size: 14px;
 }
 .card .form-row > * {
   flex: 1 1 220px;
@@ -105,6 +149,7 @@ select {
   border-radius: 6px;
   border: none;
   cursor: pointer;
+  font-size: 14px;
 }
 .btn-edit {
   background: #444;
@@ -137,4 +182,6 @@ select {
   .card .form-row > * {
     flex: 1 1 100%;
   }
+  .clients-table th, .clients-table td { padding: 8px; font-size:13px; }
+  .btn { padding:6px 10px; font-size:13px; }
 }
