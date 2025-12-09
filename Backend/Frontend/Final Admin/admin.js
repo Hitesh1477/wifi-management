@@ -162,28 +162,35 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function initClients() {
-        const clientListBody = document.getElementById("client-list-body");
-        if (!clientListBody) return;
-        clientListBody.innerHTML = "";
-        db.clients.forEach(client => {
-            const statusClass = client.blocked ? "status-blocked" : "status-active";
-            const statusText = client.blocked ? "Blocked" : "Active";
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td>${client.studentId} (${client.device})</td>
-                <td>${client.ip}</td>
-                <td>${client.data} GB</td>
-                <td>${client.activity}</td>
-                <td class="${statusClass}">${statusText}</td>
-                <td class="action-buttons">
-                    <button class="btn btn-secondary btn-edit" data-id="${client.id}"><i class="fa-solid fa-pencil"></i> Edit</button>
-                    <button class="btn ${client.blocked ? 'btn-success' : 'btn-danger'} btn-block" data-id="${client.id}">
-                        ${client.blocked ? 'Unblock' : 'Block'}
-                    </button>
-                </td>
-            `;
-            clientListBody.appendChild(row);
-        });
+        if (typeof window.loadClientsData === 'function') {
+            window.loadClientsData();
+            return;
+        }
+        const tbody = document.getElementById('client-list-body') || document.getElementById('clients-table-body');
+        if (!tbody) return;
+        const token = localStorage.getItem('admin_token');
+        if (!token) return;
+        fetch('http://127.0.0.1:5000/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
+            .then(res => res.json())
+            .then(({ clients }) => {
+                tbody.innerHTML = '';
+                (clients || []).forEach(c => {
+                    const blocked = c.blocked === true;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${(c.roll_no || c.name || 'N/A')}</td>
+                        <td>${c.ip || 'N/A'}</td>
+                        <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                        <td>${c.activity || 'Idle'}</td>
+                        <td>${blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                        <td class="action-buttons">
+                            <button class="btn btn-edit" onclick="editClient('${c._id || c.id}')">Edit</button>
+                            <button class="${blocked ? 'btn-unblock' : 'btn-block'} btn" onclick="toggleBlock('${c._id || c.id}', ${blocked})">${blocked ? 'Unblock' : 'Block'}</button>
+                        </td>`;
+                    tbody.appendChild(tr);
+                });
+            })
+            .catch(err => console.error('initClients fetch error', err));
     }
 
     function initWebFiltering() {
@@ -348,11 +355,13 @@ document.addEventListener("DOMContentLoaded", () => {
             sidebar.classList.toggle("open");
         }
 
-        if (e.target.classList.contains('btn-block')) {
+        if (e.target.classList.contains('btn-block') || e.target.classList.contains('btn-unblock')) {
+            if (typeof window.toggleBlock === 'function') return;
             handleBlockUnblock(e.target);
         }
         
         if (e.target.classList.contains('btn-edit')) {
+            if (typeof window.editClient === 'function') return;
             const id = parseInt(e.target.dataset.id);
             openEditModal(id);
         }
@@ -408,21 +417,21 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.addEventListener('submit', (e) => {
         if (e.target.id === 'add-client-form') {
             e.preventDefault();
-            const studentId = document.getElementById('client-id').value;
-            const device = document.getElementById('client-device').value;
-            const ip = document.getElementById('client-ip').value;
-            if (studentId && device && ip) {
-                const newClient = {
-                    id: db.clients.length + 1, studentId, ip, data: 0.1, activity: 'Idle', blocked: false
-                };
-                db.clients.push(newClient);
-                db.bandwidthLimits[newClient.id] = 'standard';
-                addLog('info', 'ADMIN', `Added new client ${studentId}`);
-                initClients();
-                initDashboard();
+            const roll_no = document.getElementById('client-id')?.value.trim();
+            const ip = document.getElementById('client-ip')?.value.trim();
+            const activity = document.getElementById('client-activity')?.value.trim();
+            if (!roll_no) return alert('Enter Student ID');
+            const token = localStorage.getItem('admin_token');
+            if (!token) return alert('Please log in as admin');
+            fetch('http://127.0.0.1:5000/admin/clients', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ roll_no, ip, activity })
+            }).then(async (res) => {
+                if (!res.ok) { alert('Failed to add client'); return; }
                 e.target.reset();
-                alert('Client added successfully!');
-            }
+                if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+            }).catch(err => { console.error(err); alert('Request error'); });
         }
         
         if (e.target.id === 'website-block-form') {
