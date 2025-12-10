@@ -1,43 +1,163 @@
 <section class="page" id="clients-page">
     <div class="card">
         <h2>Add New Student/Device</h2>
-        <form class="settings-form" id="add-client-form">
+        <form id="add-client-form">
             <div class="form-row">
-                <div class="form-group">
-                    <label for="client-id">Student ID</label>
-                    <input type="text" id="client-id" placeholder="e.g., 23203A0027" required>
-                </div>
-                <div class="form-group">
-                    <label for="client-device">Device Type</label>
-                    <input type="text" id="client-device" placeholder="e.g., MacBook Pro" required>
-                </div>
+                <input id="client-id" name="client-id" placeholder="e.g., 23203A0027" />
+                <input id="client-password" name="client-password" type="password" placeholder="Set password" />
             </div>
-            <div class="form-group">
-                <label for="client-ip">Assign IP Address</label>
-                <input type="text" id="client-ip" placeholder="e.g., 192.168.1.25" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Add Client</button>
+            <button class="btn" type="submit">Add Client</button>
         </form>
     </div>
 
-    <div class="card">
-        <h2>All Connected Clients</h2>
-        <div style="overflow-x: auto;">
-            <table class="client-table">
+    <div class="table-container">
+        <h3>All Connected Clients</h3>
+        <div class="table-responsive">
+            <table class="clients-table">
                 <thead>
                     <tr>
-                        <th>Student / Device</th>
-                        <th>IP Address</th>
-                        <th>Data Usage (24h)</th>
-                        <th>Current Activity (Simulated)</th>
-                        <th>Status</th>
-                        <th>Action</th>
+                        <th>STUDENT</th>
+                        <th>IP ADDRESS</th>
+                        <th>DATA USAGE (24H)</th>
+                        <th>CURRENT ACTIVITY</th>
+                        <th>STATUS</th>
+                        <th>ACTION</th>
                     </tr>
                 </thead>
                 <tbody id="client-list-body">
-                    <!-- Client data will be injected here by admin.js -->
+                    <!-- rows inserted here by admin.js -> loadClientsData() -->
                 </tbody>
             </table>
         </div>
     </div>
 </section>
+
+<script>
+async function loadClientsData() {
+    const token = localStorage.getItem('admin_token');
+    console.log('Token:', token ? 'exists' : 'MISSING');
+    if (!token) {
+        console.warn('No admin token found - retrying in 2 seconds');
+        setTimeout(loadClientsData, 2000);
+        return;
+    }
+
+    try {
+        const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        console.log('Fetch response:', res.status);
+        if (!res.ok) {
+            console.error('Failed to fetch clients:', res.status);
+            return;
+        }
+
+        const { clients } = await res.json();
+        console.log('Clients received:', clients);
+        const tbody = document.getElementById('client-list-body');
+
+        if (!tbody || !Array.isArray(clients)) {
+            console.warn('tbody or clients invalid');
+            return;
+        }
+
+        tbody.innerHTML = '';
+        clients.forEach(client => {
+            const tr = document.createElement('tr');
+            // sanitize student string to remove any trailing "(...)" device label
+            const studentIdRaw = client.roll_no || client.name || 'N/A';
+            const studentId = String(studentIdRaw).replace(/\s*\([^)]*\)\s*$/, '');
+            const ip = client.ip || 'N/A';
+            const dataUsage = client.data ? client.data + ' GB' : '0 GB';
+            const activity = client.activity || 'Idle';
+            const blocked = client.blocked === true;
+            const statusClass = blocked ? 'status-blocked' : 'status-active';
+            const statusText = blocked ? 'Blocked' : 'Active';
+
+            tr.innerHTML = `
+                <td>${studentId}</td>
+                <td>${ip}</td>
+                <td>${dataUsage}</td>
+                <td>${activity}</td>
+                <td><span class="${statusClass}">${statusText}</span></td>
+                <td class="action-buttons">
+                    <button class="btn btn-edit" onclick="editClient('${client._id}')">Edit</button>
+                    <button class="btn ${blocked ? 'btn-unblock' : 'btn-block'}" onclick="toggleBlock('${client._id}', ${blocked})">
+                        ${blocked ? 'Unblock' : 'Block'}
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        console.log('Table populated with', clients.length, 'clients');
+    } catch (error) {
+        console.error('Error loading clients:', error);
+    }
+}
+
+async function toggleBlock(clientId, isBlocked) {
+    const token = localStorage.getItem('admin_token');
+    if (!token) return alert('Please log in as admin');
+
+    try {
+        const res = await fetch(`http://127.0.0.1:5000/admin/clients/${clientId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ blocked: !isBlocked })
+        });
+        if (!res.ok) {
+            const txt = await res.text();
+            console.error('Block toggle failed:', res.status, txt);
+            return alert('Failed to update client');
+        }
+        await loadClientsData();
+    } catch (err) {
+        console.error(err);
+        alert('Request error');
+    }
+}
+
+function editClient(clientId) {
+    if (typeof openEditModal === 'function') {
+        openEditModal(clientId);
+    }
+}
+
+document.getElementById('add-client-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const roll_no = document.getElementById('client-id')?.value.trim();
+    const password = document.getElementById('client-password')?.value.trim();
+
+    if (!roll_no) return alert('Enter Student ID');
+
+    const token = localStorage.getItem('admin_token');
+    if (!token) return alert('Please log in as admin');
+
+    try {
+        const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ roll_no, password })
+        });
+        if (!res.ok) {
+            console.error('Add client failed', await res.text());
+            return alert('Failed to add client');
+        }
+        e.target.reset();
+        await loadClientsData();
+    } catch (err) {
+        console.error(err);
+        alert('Request error');
+    }
+});
+
+// Load when DOM is ready
+document.addEventListener('DOMContentLoaded', loadClientsData);
+loadClientsData();
+</script>

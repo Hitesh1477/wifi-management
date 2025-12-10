@@ -5,6 +5,9 @@
 <title>Admin Login | Wi-Fi Management</title>
 
 <style>
+    * {
+    box-sizing: border-box;
+}
     body {
         /* background: linear-gradient(120deg, #3b82f6, #06b6d4); */
         height: 100vh;
@@ -129,8 +132,6 @@ function loadDashboardStats() {
     })
     .catch(err => console.log("Error loading dashboard:", err));
 }
-
-loadDashboardStats();
 
 </script>
 

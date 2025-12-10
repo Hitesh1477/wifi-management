@@ -125,23 +125,11 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
 
-        const ctx = document.getElementById('traffic-chart-canvas');
-        if (!ctx) return;
-        const initialLabels = ['-58s', '-48s', '-38s', '-28s', '-18s', '-8s'];
-        const initialDownloadData = [120, 190, 300, 500, 220, 450];
-        const initialUploadData = [30, 40, 20, 50, 80, 75];
-        myTrafficChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: initialLabels, datasets: [
-                { label: 'Download (Mbps)', data: initialDownloadData, borderColor: 'var(--primary-blue)', backgroundColor: 'rgba(0, 92, 158, 0.1)', fill: true, tension: 0.4 },
-                { label: 'Upload (Mbps)', data: initialUploadData, borderColor: 'var(--green)', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4 }
-            ]},
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true }, x: { ticks: { autoSkip: false, maxRotation: 0 } } },
-                interaction: { mode: 'index', intersect: false }
-            }
-        });
+        const canvas = document.getElementById('traffic-chart-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            renderTrafficChart(ctx, /* your chartData */);
+        }
 
         trafficInterval = setInterval(() => {
             const newDownload = Math.floor(Math.random() * 400) + 100;
@@ -174,28 +162,35 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function initClients() {
-        const clientListBody = document.getElementById("client-list-body");
-        if (!clientListBody) return;
-        clientListBody.innerHTML = "";
-        db.clients.forEach(client => {
-            const statusClass = client.blocked ? "status-blocked" : "status-active";
-            const statusText = client.blocked ? "Blocked" : "Active";
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td>${client.studentId} (${client.device})</td>
-                <td>${client.ip}</td>
-                <td>${client.data} GB</td>
-                <td>${client.activity}</td>
-                <td class="${statusClass}">${statusText}</td>
-                <td class="action-buttons">
-                    <button class="btn btn-secondary btn-edit" data-id="${client.id}"><i class="fa-solid fa-pencil"></i> Edit</button>
-                    <button class="btn ${client.blocked ? 'btn-success' : 'btn-danger'} btn-block" data-id="${client.id}">
-                        ${client.blocked ? 'Unblock' : 'Block'}
-                    </button>
-                </td>
-            `;
-            clientListBody.appendChild(row);
-        });
+        if (typeof window.loadClientsData === 'function') {
+            window.loadClientsData();
+            return;
+        }
+        const tbody = document.getElementById('client-list-body') || document.getElementById('clients-table-body');
+        if (!tbody) return;
+        const token = localStorage.getItem('admin_token');
+        if (!token) return;
+        fetch('http://127.0.0.1:5000/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
+            .then(res => res.json())
+            .then(({ clients }) => {
+                tbody.innerHTML = '';
+                (clients || []).forEach(c => {
+                    const blocked = c.blocked === true;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${(c.roll_no || c.name || 'N/A')}</td>
+                        <td>${c.ip || 'N/A'}</td>
+                        <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                        <td>${c.activity || 'Idle'}</td>
+                        <td>${blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                        <td class="action-buttons">
+                            <button class="btn btn-edit" onclick="editClient('${c._id || c.id}')">Edit</button>
+                            <button class="${blocked ? 'btn-unblock' : 'btn-block'} btn" onclick="toggleBlock('${c._id || c.id}', ${blocked})">${blocked ? 'Unblock' : 'Block'}</button>
+                        </td>`;
+                    tbody.appendChild(tr);
+                });
+            })
+            .catch(err => console.error('initClients fetch error', err));
     }
 
     function initWebFiltering() {
@@ -360,12 +355,17 @@ document.addEventListener("DOMContentLoaded", () => {
             sidebar.classList.toggle("open");
         }
 
-        if (e.target.classList.contains('btn-block')) {
+        if (e.target.classList.contains('btn-block') || e.target.classList.contains('btn-unblock')) {
+            if (typeof window.toggleBlock === 'function') return;
             handleBlockUnblock(e.target);
         }
         
         if (e.target.classList.contains('btn-edit')) {
-            const id = parseInt(e.target.dataset.id);
+            // If a global editClient is defined (inline onclick), skip the delegate
+            if (typeof window.editClient === 'function') return;
+            const rawId = e.target.dataset.id || e.target.getAttribute('data-id');
+            const id = rawId ? String(rawId) : '';
+            if (!id) return;
             openEditModal(id);
         }
         
@@ -420,21 +420,24 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.addEventListener('submit', (e) => {
         if (e.target.id === 'add-client-form') {
             e.preventDefault();
-            const studentId = document.getElementById('client-id').value;
-            const device = document.getElementById('client-device').value;
-            const ip = document.getElementById('client-ip').value;
-            if (studentId && device && ip) {
-                const newClient = {
-                    id: db.clients.length + 1, studentId, device, ip, data: 0.1, activity: 'Idle', blocked: false
-                };
-                db.clients.push(newClient);
-                db.bandwidthLimits[newClient.id] = 'standard';
-                addLog('info', 'ADMIN', `Added new client ${studentId} (${device})`);
-                initClients();
-                initDashboard();
+            const roll_no = document.getElementById('client-id')?.value.trim();
+            const password = document.getElementById('client-password')?.value.trim();
+            const activity = document.getElementById('client-activity')?.value?.trim();
+            if (!roll_no) return alert('Enter Student ID');
+            const token = localStorage.getItem('admin_token');
+            if (!token) return alert('Please log in as admin');
+            const body = { roll_no };
+            if (password) body.password = password;
+            if (activity) body.activity = activity;
+            fetch('http://127.0.0.1:5000/admin/clients', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(body)
+            }).then(async (res) => {
+                if (!res.ok) { alert('Failed to add client'); return; }
                 e.target.reset();
-                alert('Client added successfully!');
-            }
+                if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+            }).catch(err => { console.error(err); alert('Request error'); });
         }
         
         if (e.target.id === 'website-block-form') {
@@ -539,26 +542,74 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     function handleEditClient() {
-        const id = parseInt(document.getElementById('edit-client-id').value);
-        const client = db.clients.find(c => c.id === id);
-        if (!client) return;
-        client.studentId = document.getElementById('edit-client-id-text').value;
-        client.device = document.getElementById('edit-client-device').value;
-        client.ip = document.getElementById('edit-client-ip').value;
-        addLog('info', 'ADMIN', `Updated details for ${client.studentId}`);
-        closeEditModal();
-        initClients();
+        const id = document.getElementById('edit-client-id').value;
+        const roll_no = document.getElementById('edit-client-id-text').value.trim();
+        const password = document.getElementById('edit-client-password').value.trim();
+        if (!roll_no || !id) return alert('Missing required fields');
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please log in as admin');
+        const body = { roll_no };
+        if (password) body.password = password;
+        fetch(`http://127.0.0.1:5000/admin/clients/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify(body)
+        }).then(async (res) => {
+            if (!res.ok) { alert('Failed to update client'); return; }
+            closeEditModal();
+            if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+        }).catch(err => { console.error(err); alert('Request error'); });
     }
     
-    function openEditModal(id) {
-        const client = db.clients.find(c => c.id === id);
-        if (!client) return;
-        document.getElementById('edit-client-id').value = id;
-        document.getElementById('edit-client-id-text').value = client.studentId;
-        document.getElementById('edit-client-device').value = client.device;
-        document.getElementById('edit-client-ip').value = client.ip;
-        modalOverlay.classList.remove('hidden');
+    async function fetchClientById(id) {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return null;
+        try {
+            const resOne = await fetch(`http://127.0.0.1:5000/admin/clients/${id}`, { headers: { 'Authorization': 'Bearer ' + token } });
+            if (resOne.ok) {
+                const data = await resOne.json();
+                return data.client || data;
+            }
+        } catch {}
+        try {
+            const res = await fetch('http://127.0.0.1:5000/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } });
+            if (res.ok) {
+                const { clients } = await res.json();
+                return (clients || []).find(x => String(x._id || x.id) === String(id)) || null;
+            }
+        } catch {}
+        return null;
     }
+
+    function openEditModal(id) {
+        document.getElementById('edit-client-id').value = id;
+        const pwd = document.getElementById('edit-client-password');
+        if (pwd) pwd.value = '';
+        fetchClientById(id).then(c => {
+            document.getElementById('edit-client-id-text').value = (c && (c.roll_no || c.name)) ? (c.roll_no || c.name) : '';
+            modalOverlay.classList.remove('hidden');
+        }).catch(() => {
+            document.getElementById('edit-client-id-text').value = '';
+            modalOverlay.classList.remove('hidden');
+        });
+    }
+
+    // expose edit modal function globally for inline onclicks
+    window.openEditModal = openEditModal;
+
+    // expose block/unblock globally for inline onclicks and call backend
+    window.toggleBlock = function(id, isBlocked) {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please log in as admin');
+        fetch(`http://127.0.0.1:5000/admin/clients/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ blocked: !isBlocked })
+        }).then(async (res) => {
+            if (!res.ok) { alert('Failed to update client'); return; }
+            if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+        }).catch(err => { console.error(err); alert('Request error'); });
+    };
     
     function closeEditModal() {
         modalOverlay.classList.add('hidden');
@@ -870,7 +921,269 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    /**
+     * Ensure the clients table exists inside the clients page fragment.
+     * Returns the <tbody> element to populate.
+     */
+    function ensureClientsTableBody() {
+        // Try common ids first
+        let tbody = document.getElementById('clients-table-body') || document.getElementById('client-list-body');
+        if (tbody) return tbody;
+
+        // Find the clients page container in the DOM
+        const clientsSection = document.getElementById('clients-page') || document.querySelector('.page#clients-page');
+        const container = clientsSection || document.querySelector('.table-container') || document.body;
+
+        // Create table markup and append
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
+          <h3>All Connected Clients</h3>
+          <div class="table-responsive">
+            <table class="clients-table">
+              <thead>
+                <tr>
+                  <th>STUDENT / DEVICE</th>
+                  <th>IP ADDRESS</th>
+                  <th>DATA USAGE (24H)</th>
+                  <th>CURRENT ACTIVITY (SIMULATED)</th>
+                  <th>STATUS</th>
+                  <th>ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="clients-table-body"></tbody>
+            </table>
+          </div>
+        `;
+        container.appendChild(wrapper);
+        return document.getElementById('clients-table-body');
+    }
+
+    // make function global (existing loadClientsData implementation may be present)
+    window.loadClientsData = async function loadClientsData() {
+        const tbody = ensureClientsTableBody();
+        if (!tbody) return console.warn('unable to create/find clients table body');
+
+        const token = localStorage.getItem('admin_token');
+        if (!token) {
+            console.warn('No admin token found; will retry in 2s');
+            setTimeout(loadClientsData, 2000);
+            return;
+        }
+
+        try {
+            const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (!res.ok) return console.error('Failed to fetch clients', res.status);
+            const { clients } = await res.json();
+            if (!Array.isArray(clients)) return console.warn('Invalid clients response', clients);
+
+            tbody.innerHTML = '';
+            clients.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${(c.roll_no || c.name || 'N/A')}</td>
+                    <td>${c.ip || 'N/A'}</td>
+                    <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                    <td>${c.activity || 'Idle'}</td>
+                    <td>${c.blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editClient('${c._id}')">Edit</button>
+                        <button onclick="toggleBlock('${c._id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            console.log('Table populated with', clients.length, 'clients');
+        } catch (err) {
+            console.error('Error loading clients:', err);
+        }
+    };
+
     // --- Initial Load ---
     loadPage('dashboard');
     initNotificationTray();
+
+    // Fetch real admin stats & clients/logs from backend if admin token is present
+    fetchAndApplyAdminData().catch(err => console.warn("Admin fetch failed:", err));
 });
+
+async function fetchAndApplyAdminData() {
+    const token = localStorage.getItem("admin_token");
+    if (!token) return; // not logged in as admin
+
+    const headers = { "Authorization": "Bearer " + token };
+
+    try {
+        const [statsRes, clientsRes, logsRes] = await Promise.all([
+            fetch("http://127.0.0.1:5000/admin/stats", { headers }),
+            fetch("http://127.0.0.1:5000/admin/clients", { headers }),
+            fetch("http://127.0.0.1:5000/admin/logs", { headers })
+        ]);
+
+        if (statsRes.ok) {
+            const stats = await statsRes.json();
+            const clientCountElement = document.getElementById("client-count");
+            if (clientCountElement && typeof stats.client_count !== 'undefined') {
+                clientCountElement.textContent = stats.client_count;
+            }
+            const dataCountElement = document.getElementById("data-count");
+            if (dataCountElement && typeof stats.total_data !== 'undefined') {
+                dataCountElement.textContent = `${stats.total_data} GB`;
+            }
+            const threatCountElement = document.getElementById("threat-count");
+            if (threatCountElement && typeof stats.threats_blocked !== 'undefined') {
+                threatCountElement.textContent = stats.threats_blocked;
+            }
+        }
+
+        if (clientsRes.ok) {
+            const clientsJson = await clientsRes.json();
+            const clients = Array.isArray(clientsJson.clients) ? clientsJson.clients : clientsJson;
+            const tbody = document.getElementById('clients-table-body') || document.getElementById('client-list-body');
+            if (tbody) {
+                tbody.innerHTML = '';
+                clients.forEach(c => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${(c.roll_no || c.name || 'N/A')}</td>
+                        <td>${c.ip || 'N/A'}</td>
+                        <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                        <td>${c.activity || 'Idle'}</td>
+                        <td>${c.blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                        <td>
+                            <button class="btn-edit" onclick="editClient('${c._id || c.id}')">Edit</button>
+                            <button onclick="toggleBlock('${c._id || c.id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        if (logsRes.ok) {
+            const logsJson = await logsRes.json();
+            const logs = Array.isArray(logsJson.logs) ? logsJson.logs : logsJson;
+            const logBody = document.getElementById('log-body') || document.getElementById('event-log-body');
+            if (logBody) {
+                logBody.innerHTML = '';
+                logs.slice(0, 50).forEach(log => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${log.time || ''}</td><td><span class="log-level-${log.level || 'info'}">${(log.level||'').toUpperCase()}</span></td><td>${log.user || ''}</td><td>${log.action || ''}</td>`;
+                    logBody.appendChild(tr);
+                });
+            }
+        }
+    } catch (err) {
+        console.warn("fetchAndApplyAdminData error:", err);
+    }
+}
+
+/**
+ * Safely load an HTML fragment into container. Tries two relative paths and never leaves a visible error box.
+ * Usage: safeLoadFragment('pages/clients.html', '#page-content')
+ */
+async function safeLoadFragment(fragmentPath, containerSelector) {
+    const container = document.querySelector(containerSelector || '#content-area') || document.getElementById('content-area') || document.body;
+    // hide any visible error card
+    const errEl = document.querySelector('.page-load-error, .fragment-error');
+    if (errEl) errEl.style.display = 'none';
+
+    // Try a few sensible relative paths (most robust)
+    const candidates = [
+        fragmentPath,
+        './' + fragmentPath,
+        fragmentPath.replace(/^\.\//, ''),
+        (fragmentPath.startsWith('pages/') ? fragmentPath : 'pages/' + fragmentPath),
+        './pages/' + fragmentPath.replace(/^pages\//, '')
+    ].map(p => p.replace(/\/+/g, '/')); // normalize
+
+    for (const p of candidates) {
+        try {
+            console.debug('safeLoadFragment: trying', p);
+            const r = await fetch(p, { cache: 'no-store' });
+            if (!r.ok) {
+                console.debug(`safeLoadFragment: ${p} returned ${r.status}`);
+                continue;
+            }
+            const html = await r.text();
+            container.innerHTML = html;
+
+            // Execute inline scripts inside the fetched HTML (best-effort)
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            tmp.querySelectorAll('script').forEach(s => {
+                if (!s.src) {
+                    try { new Function(s.textContent)(); } catch (e) { console.error('fragment inline script error', e); }
+                } else {
+                    // Optionally load external scripts if necessary
+                    const ext = document.createElement('script');
+                    ext.src = s.src;
+                    document.head.appendChild(ext);
+                }
+            });
+
+            console.info('safeLoadFragment: loaded', p);
+            return true;
+        } catch (err) {
+            console.warn('safeLoadFragment fetch error for', p, err);
+        }
+    }
+
+    console.warn('safeLoadFragment: could not load any candidate for', fragmentPath, 'tried', candidates);
+    return false;
+}
+
+// Example: replace direct fragment loads with safeLoadFragment calls
+document.addEventListener('DOMContentLoaded', () => {
+    // ...existing init...
+    // when loading the clients/dashboard fragments use:
+    // safeLoadFragment('pages/clients.html', '#page-content');
+    // safeLoadFragment('pages/dashboard.html', '#page-content');
+});
+
+// Ensure global editClient exists for inline onclick usage
+window.editClient = function(id) {
+    openEditModal(String(id));
+};
+
+// Add this near the top of admin.js (before initDashboard uses it)
+function renderTrafficChart(ctx, chartData) {
+  // destroy previous chart if present
+  if (window.myTrafficChart && typeof window.myTrafficChart.destroy === 'function') {
+    window.myTrafficChart.destroy();
+  }
+
+  // If caller did not pass chartData, make a small fallback dataset
+  if (!chartData) {
+    const labels = Array.from({length: 8}, (_, i) => {
+      const d = new Date(Date.now() - (7 - i) * 2000);
+      return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+    });
+    chartData = {
+      labels,
+      datasets: [
+        { label: 'Download (KB/s)', backgroundColor: 'rgba(54,162,235,0.2)', borderColor: 'rgba(54,162,235,1)', data: labels.map(()=> Math.floor(Math.random()*400)+50), fill: true },
+        { label: 'Upload (KB/s)', backgroundColor: 'rgba(255,99,132,0.1)', borderColor: 'rgba(255,99,132,1)', data: labels.map(()=> Math.floor(Math.random()*80)+10), fill: true }
+      ]
+    };
+  }
+
+  window.myTrafficChart = new Chart(ctx, {
+    type: 'line',
+    data: chartData,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      stacked: false,
+      plugins: {
+        legend: { position: 'top' }
+      },
+      scales: {
+        x: { display: true },
+        y: { display: true, beginAtZero: true }
+      }
+    }
+  });
+}
