@@ -1,71 +1,53 @@
-import pandas as pd
 import os
+import pandas as pd
 
-def generate_insights(summary_file):
-    print(f"🔍 Reading summary file: {summary_file}")
-
-    if not os.path.exists(summary_file):
-        print("❌ Summary file not found.")
+def generate_insights():
+    # Find all summary files
+    summary_files = [f for f in os.listdir() if f.startswith("summary_") and f.endswith(".csv")]
+    if not summary_files:
+        print("❌ No summary_*.csv files found. Run analysis first.")
         return
 
-    # Read file safely
-    try:
-        df = pd.read_csv(summary_file)
-    except Exception as e:
-        print(f"⚠️ Could not read CSV: {e}")
+    print("🔍 Reading summary files:")
+    dfs = []
+    for f in summary_files:
+        print(f"  - {f}")
+        df = pd.read_csv(f)
+        dfs.append(df)
+
+    all_data = pd.concat(dfs, ignore_index=True)
+
+    # We expect: time_bucket, ip.src, category, packet_count
+    expected_cols = {"time_bucket", "ip.src", "category", "packet_count"}
+    missing = expected_cols - set(all_data.columns)
+    if missing:
+        print(f"⚠️ Missing columns in CSV. Found: {list(all_data.columns)}")
+        print(f"   Expected at least: {expected_cols}")
         return
 
-    if df.empty:
-        print("⚠️ No data found in summary file.")
-        return
+    # Top active IPs (by total packet_count)
+    ip_activity = (
+        all_data.groupby("ip.src")["packet_count"]
+        .sum()
+        .reset_index()
+        .sort_values(by="packet_count", ascending=False)
+    )
 
-    # Ensure expected columns exist
-    required_cols = {"ip.src", "category", "count"}
-    if not required_cols.issubset(df.columns):
-        print(f"⚠️ Missing columns in CSV. Found: {list(df.columns)}")
-        return
+    # Category distribution
+    category_dist = (
+        all_data.groupby("category")["packet_count"]
+        .sum()
+        .reset_index()
+        .sort_values(by="packet_count", ascending=False)
+    )
 
-    # --- Generate insights ---
-    total_records = len(df)
-    unique_devices = df["ip.src"].nunique()
-    unique_categories = df["category"].nunique()
+    # Save insights as CSVs
+    ip_activity.to_csv("insights_top_ips.csv", index=False)
+    category_dist.to_csv("insights_categories.csv", index=False)
 
-    top_devices = df.groupby("ip.src")["count"].sum().sort_values(ascending=False).head(5)
-    top_categories = df.groupby("category")["count"].sum().sort_values(ascending=False).head(5)
+    print("\n✅ Insights generated:")
+    print("   - insights_top_ips.csv")
+    print("   - insights_categories.csv")
 
-    print("\n📊 --- Traffic Insights ---")
-    print(f"Total Records: {total_records}")
-    print(f"Unique Devices: {unique_devices}")
-    print(f"Unique Categories: {unique_categories}")
-
-    print("\n👤 Top 5 Devices by Activity:")
-    print(top_devices)
-
-    print("\n🏆 Top Categories:")
-    print(top_categories)
-
-    # --- Save as a structured insights file ---
-    insight_path = summary_file.replace("summary_", "insights_")
-
-    with open(insight_path, "w", encoding="utf-8") as f:
-        f.write("=== Traffic Insights Summary ===\n")
-        f.write(f"Total Records: {total_records}\n")
-        f.write(f"Unique Devices: {unique_devices}\n")
-        f.write(f"Unique Categories: {unique_categories}\n\n")
-
-        f.write("Top 5 Devices by Activity:\n")
-        f.write(top_devices.to_string())
-        f.write("\n\nTop Categories:\n")
-        f.write(top_categories.to_string())
-
-    print(f"\n💾 Insights saved -> {insight_path}")
-    return insight_path
-
-# Allow standalone execution
 if __name__ == "__main__":
-    files = [f for f in os.listdir() if f.startswith("summary_") and f.endswith(".csv")]
-    if not files:
-        print("⚠️ No summary_ file found in directory.")
-    else:
-        latest_summary = max(files, key=os.path.getctime)
-        generate_insights(latest_summary)
+    generate_insights()
