@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app as app
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from pymongo import MongoClient
 import jwt, datetime
+from bson.objectid import ObjectId
 
 # ✅ MongoDB
 client = MongoClient("mongodb://localhost:27017/")
@@ -34,6 +35,20 @@ def admin_required(f):
     return decorated
 
 admin_routes = Blueprint("admin_routes", __name__)
+
+def _find_user_by_mixed_id(id):
+    try:
+        oid = ObjectId(id)
+        doc = users_collection.find_one({"_id": oid})
+        if doc:
+            return doc
+    except Exception:
+        pass
+    doc = users_collection.find_one({"_id": id})
+    if doc:
+        return doc
+    doc = users_collection.find_one({"roll_no": id})
+    return doc
 
 # ✅ Admin Login
 @admin_routes.route('/admin/login', methods=['POST'])
@@ -78,6 +93,75 @@ def admin_clients():
         c['_id'] = str(c.get('_id'))
         clients.append(c)
     return jsonify({"clients": clients}), 200
+
+@admin_routes.route('/admin/clients', methods=['POST'])
+@admin_required
+def admin_add_client():
+    data = request.get_json() or {}
+    roll_no = (data.get('roll_no') or '').strip()
+    password = (data.get('password') or '').strip()
+    activity = (data.get('activity') or '').strip() or 'Idle'
+
+    if not roll_no:
+        return jsonify({"message": "roll_no required"}), 400
+    if users_collection.find_one({"roll_no": roll_no}):
+        return jsonify({"message": "User already exists"}), 409
+
+    doc = {
+        "roll_no": roll_no,
+        "role": "student",
+        "blocked": False,
+        "activity": activity,
+    }
+    if password:
+        doc["password"] = generate_password_hash(password)
+
+    inserted = users_collection.insert_one(doc)
+    return jsonify({"message": "Client added", "id": str(inserted.inserted_id)}), 201
+
+@admin_routes.route('/admin/clients/<id>', methods=['GET'])
+@admin_required
+def admin_get_client(id):
+    c = _find_user_by_mixed_id(id)
+    if not c:
+        return jsonify({"message": "Not found"}), 404
+    c['_id'] = str(c['_id'])
+    return jsonify({"client": c}), 200
+
+@admin_routes.route('/admin/clients/<id>', methods=['PATCH'])
+@admin_required
+def admin_update_client(id):
+    doc = _find_user_by_mixed_id(id)
+    if not doc:
+        return jsonify({"message": "Not found"}), 404
+    oid = doc.get('_id')
+    data = request.get_json() or {}
+
+    updates = {}
+    if 'roll_no' in data and isinstance(data['roll_no'], str) and data['roll_no'].strip():
+        new_roll = data['roll_no'].strip()
+        # prevent duplicate roll_no
+        existing = users_collection.find_one({"roll_no": new_roll, "_id": {"$ne": oid}})
+        if existing:
+            return jsonify({"message": "roll_no already in use"}), 409
+        updates['roll_no'] = new_roll
+
+    if 'password' in data and isinstance(data['password'], str) and data['password'].strip():
+        updates['password'] = generate_password_hash(data['password'].strip())
+
+    if 'blocked' in data:
+        updates['blocked'] = bool(data['blocked'])
+
+    if 'activity' in data and isinstance(data['activity'], str):
+        updates['activity'] = data['activity']
+
+    if not updates:
+        return jsonify({"message": "No changes"}), 400
+
+    res = users_collection.update_one({"_id": oid}, {"$set": updates})
+    if res.matched_count == 0:
+        return jsonify({"message": "Not found"}), 404
+    return jsonify({"message": "Client updated"}), 200
 
 @admin_routes.route('/admin/logs', methods=['GET'])
 @admin_required

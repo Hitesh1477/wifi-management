@@ -361,8 +361,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         if (e.target.classList.contains('btn-edit')) {
+            // If a global editClient is defined (inline onclick), skip the delegate
             if (typeof window.editClient === 'function') return;
-            const id = parseInt(e.target.dataset.id);
+            const rawId = e.target.dataset.id || e.target.getAttribute('data-id');
+            const id = rawId ? String(rawId) : '';
+            if (!id) return;
             openEditModal(id);
         }
         
@@ -418,15 +421,18 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.target.id === 'add-client-form') {
             e.preventDefault();
             const roll_no = document.getElementById('client-id')?.value.trim();
-            const ip = document.getElementById('client-ip')?.value.trim();
-            const activity = document.getElementById('client-activity')?.value.trim();
+            const password = document.getElementById('client-password')?.value.trim();
+            const activity = document.getElementById('client-activity')?.value?.trim();
             if (!roll_no) return alert('Enter Student ID');
             const token = localStorage.getItem('admin_token');
             if (!token) return alert('Please log in as admin');
+            const body = { roll_no };
+            if (password) body.password = password;
+            if (activity) body.activity = activity;
             fetch('http://127.0.0.1:5000/admin/clients', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ roll_no, ip, activity })
+                body: JSON.stringify(body)
             }).then(async (res) => {
                 if (!res.ok) { alert('Failed to add client'); return; }
                 e.target.reset();
@@ -536,26 +542,74 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     function handleEditClient() {
-        const id = parseInt(document.getElementById('edit-client-id').value);
-        const client = db.clients.find(c => c.id === id);
-        if (!client) return;
-        client.studentId = document.getElementById('edit-client-id-text').value;
-        client.device = document.getElementById('edit-client-device').value;
-        client.ip = document.getElementById('edit-client-ip').value;
-        addLog('info', 'ADMIN', `Updated details for ${client.studentId}`);
-        closeEditModal();
-        initClients();
+        const id = document.getElementById('edit-client-id').value;
+        const roll_no = document.getElementById('edit-client-id-text').value.trim();
+        const password = document.getElementById('edit-client-password').value.trim();
+        if (!roll_no || !id) return alert('Missing required fields');
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please log in as admin');
+        const body = { roll_no };
+        if (password) body.password = password;
+        fetch(`http://127.0.0.1:5000/admin/clients/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify(body)
+        }).then(async (res) => {
+            if (!res.ok) { alert('Failed to update client'); return; }
+            closeEditModal();
+            if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+        }).catch(err => { console.error(err); alert('Request error'); });
     }
     
-    function openEditModal(id) {
-        const client = db.clients.find(c => c.id === id);
-        if (!client) return;
-        document.getElementById('edit-client-id').value = id;
-        document.getElementById('edit-client-id-text').value = client.studentId;
-        document.getElementById('edit-client-device').value = client.device;
-        document.getElementById('edit-client-ip').value = client.ip;
-        modalOverlay.classList.remove('hidden');
+    async function fetchClientById(id) {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return null;
+        try {
+            const resOne = await fetch(`http://127.0.0.1:5000/admin/clients/${id}`, { headers: { 'Authorization': 'Bearer ' + token } });
+            if (resOne.ok) {
+                const data = await resOne.json();
+                return data.client || data;
+            }
+        } catch {}
+        try {
+            const res = await fetch('http://127.0.0.1:5000/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } });
+            if (res.ok) {
+                const { clients } = await res.json();
+                return (clients || []).find(x => String(x._id || x.id) === String(id)) || null;
+            }
+        } catch {}
+        return null;
     }
+
+    function openEditModal(id) {
+        document.getElementById('edit-client-id').value = id;
+        const pwd = document.getElementById('edit-client-password');
+        if (pwd) pwd.value = '';
+        fetchClientById(id).then(c => {
+            document.getElementById('edit-client-id-text').value = (c && (c.roll_no || c.name)) ? (c.roll_no || c.name) : '';
+            modalOverlay.classList.remove('hidden');
+        }).catch(() => {
+            document.getElementById('edit-client-id-text').value = '';
+            modalOverlay.classList.remove('hidden');
+        });
+    }
+
+    // expose edit modal function globally for inline onclicks
+    window.openEditModal = openEditModal;
+
+    // expose block/unblock globally for inline onclicks and call backend
+    window.toggleBlock = function(id, isBlocked) {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please log in as admin');
+        fetch(`http://127.0.0.1:5000/admin/clients/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ blocked: !isBlocked })
+        }).then(async (res) => {
+            if (!res.ok) { alert('Failed to update client'); return; }
+            if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+        }).catch(err => { console.error(err); alert('Request error'); });
+    };
     
     function closeEditModal() {
         modalOverlay.classList.add('hidden');
@@ -1087,6 +1141,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // safeLoadFragment('pages/clients.html', '#page-content');
     // safeLoadFragment('pages/dashboard.html', '#page-content');
 });
+
+// Ensure global editClient exists for inline onclick usage
+window.editClient = function(id) {
+    openEditModal(String(id));
+};
 
 // Add this near the top of admin.js (before initDashboard uses it)
 function renderTrafficChart(ctx, chartData) {

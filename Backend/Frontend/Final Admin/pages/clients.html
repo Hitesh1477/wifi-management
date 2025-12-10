@@ -4,10 +4,7 @@
         <form id="add-client-form">
             <div class="form-row">
                 <input id="client-id" name="client-id" placeholder="e.g., 23203A0027" />
-            </div>
-            <div class="form-row">
-                <input id="client-ip" name="client-ip" placeholder="e.g., 192.168.1.25" />
-                <input id="client-activity" name="client-activity" placeholder="e.g., Browsing / Streaming" />
+                <input id="client-password" name="client-password" type="password" placeholder="Set password" />
             </div>
             <button class="btn" type="submit">Add Client</button>
         </form>
@@ -124,14 +121,15 @@ async function toggleBlock(clientId, isBlocked) {
 }
 
 function editClient(clientId) {
-    console.log('Edit client:', clientId);
+    if (typeof openEditModal === 'function') {
+        openEditModal(clientId);
+    }
 }
 
 document.getElementById('add-client-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const roll_no = document.getElementById('client-id')?.value.trim();
-    const ip = document.getElementById('client-ip')?.value.trim();
-    const activity = document.getElementById('client-activity')?.value.trim();
+    const password = document.getElementById('client-password')?.value.trim();
 
     if (!roll_no) return alert('Enter Student ID');
 
@@ -145,7 +143,7 @@ document.getElementById('add-client-form')?.addEventListener('submit', async (e)
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + token
             },
-            body: JSON.stringify({ roll_no, ip, activity })
+            body: JSON.stringify({ roll_no, password })
         });
         if (!res.ok) {
             console.error('Add client failed', await res.text());
