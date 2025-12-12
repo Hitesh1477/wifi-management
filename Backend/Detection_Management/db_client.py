@@ -1,11 +1,9 @@
-# db_client.py
 from pymongo import MongoClient
 
-# Local MongoDB on default port
-MONGO_URI = "mongodb://127.0.0.1:27017"
+client = MongoClient("mongodb://localhost:27017/")
+db = client["studentapp"]
+detections = db["detections"]
 
-_client = MongoClient(MONGO_URI)
-_db = _client["studentapp"]
-
-def get_collection():
-    return _db["detections"]
+def insert_detection(doc):
+    detections.insert_one(doc)
+    return True

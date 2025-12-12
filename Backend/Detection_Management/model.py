@@ -1,16 +1,14 @@
 CATEGORIES = {
-    "video": ["youtube", "googlevideo", "ytimg", "vimeo"],
-    "learning": ["udemy", "coursera", "edx", "khanacademy"],
+    "video": ["youtube", "googlevideo", "netflix"],
+    "social": ["instagram", "facebook", "tiktok", "snapchat"],
+    "messaging": ["whatsapp"],
     "search": ["google.", "bing.com", "duckduckgo"],
-    "social": ["facebook", "instagram", "twitter", "tiktok", "snapchat", "whatsapp"]
+    "system": ["msftconnecttest", "firebase", "xiaomi", "miui"]
 }
 
 def classify(domain: str) -> str:
     d = domain.lower()
-
-    for category, keywords in CATEGORIES.items():
-        for key in keywords:
-            if key in d:
-                return category
-
+    for cat, keys in CATEGORIES.items():
+        if any(k in d for k in keys):
+            return cat
     return "general"

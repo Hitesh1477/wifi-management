@@ -1,25 +1,29 @@
-from datetime import datetime
 import subprocess
-import os
+import shlex
 
-def start_capture(interface="Wi-Fi", duration=60):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = f"capture_{timestamp}.csv"
-    output_path = os.path.join(os.path.dirname(__file__), output_file)
+def start_capture_stream(interface="Wi-Fi"):
+    cmd = (
+        f'tshark -i "{interface}" '
+        f'-Y "dns.qry.name || http.host || tls.handshake.extensions_server_name" '
+        f'-T fields '
+        f'-e frame.time_epoch -e ip.src -e ip.dst '
+        f'-e dns.qry.name -e http.host -e tls.handshake.extensions_server_name '
+        f'-E header=n -E separator=,' 
+    )
 
-    tshark_cmd = [
-        "tshark", "-i", interface,
-        "-a", f"duration:{duration}",
-        "-Y", "dns.qry.name || http.host || tls.handshake.extensions_server_name",
-        "-T", "fields",
-        "-e", "frame.time_epoch", "-e", "ip.src", "-e", "ip.dst",
-        "-e", "dns.qry.name", "-e", "http.host",
-        "-e", "tls.handshake.extensions_server_name",
-        "-E", "header=y", "-E", "separator=,"
-    ]
+    print(f"📡 Starting live capture on {interface} ...")
+    print("Press CTRL + C to stop.\n")
 
-    print(f"📡 Capturing {duration} seconds of traffic...\nFile: {output_path}")
-    with open(output_path, "w") as f:
-        subprocess.run(tshark_cmd, stdout=f)
+    process = subprocess.Popen(
+        shlex.split(cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
 
-    return output_path
+    for line in process.stdout:
+        if line.strip():
+            yield line.strip()
+
+    process.terminate()
