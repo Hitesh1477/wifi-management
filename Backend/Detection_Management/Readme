@@ -1,0 +1,214 @@
+🚀 Wi-Fi Activity Detection & Monitoring System
+
+A real-time network monitoring system that captures device traffic, extracts domain activity (DNS / HTTP Host / TLS SNI), classifies user behavior, generates insights, and stores detections automatically in MongoDB.
+
+This system is designed for college projects, monitoring labs, or internal networks where administrators want to view user activity patterns in an organized dashboard.
+
+📌 Features
+✅ 1. Automatic Packet Capture
+
+Uses tshark to capture live network packets from Wi-Fi or Ethernet.
+
+Captures the following fields:
+
+frame.time_epoch
+
+ip.src
+
+ip.dst
+
+dns.qry.name
+
+http.host
+
+tls.handshake.extensions_server_name
+
+✅ 2. Real-Time Analysis
+
+Once capture is saved as CSV, the system:
+
+Cleans raw packet data
+
+Extracts the domain (host) per record
+
+Classifies activity using keyword-based logic
+
+Groups activity by user device
+
+Saves summary CSVs for reporting
+
+Generates optional insights
+
+✅ 3. MongoDB Detection Storage
+
+Each detection is inserted as a document into:
+
+DB: studentapp
+Collection: detections
+
+
+Document format:
+
+{
+  "roll_no": "23203A00XX",
+  "timestamp": ISODate(),
+  "reason": "Streaming Activity Detected",
+  "score": 0.82,
+  "details": "youtube.com identified"
+}
+
+✅ 4. Automated Monitoring Loop
+
+auto_monitor.py runs continuously:
+
+Capture 60 sec of network activity
+
+Analyze the CSV
+
+Generate insights
+
+Save detection in MongoDB
+
+Wait and repeat
+
+You can adjust duration as needed.
+
+📂 Project Structure
+Backend/
+ └── Detection_Management/
+      ├── auto_monitor.py
+      ├── capture.py
+      ├── analyze_activity.py
+      ├── insight_generator.py
+      ├── model.py
+      ├── generate_summaries.py
+      └── README.md  ← (this file)
+
+File Responsibilities
+File	Purpose
+capture.py	Runs tshark to capture packets and produce CSV files
+analyze_activity.py	Analyzes packet CSVs, classifies domains, saves summaries
+model.py	Contains classification keywords for categories
+auto_monitor.py	Full automation loop (capture → analyze → insights → MongoDB)
+insight_generator.py	Creates high-level insights from summaries
+generate_summaries.py	Extra batch report generator (optional)
+🛠️ Installation
+1. Install Python packages
+pip install -r requirements.txt
+
+
+If you don’t have a requirements file, install manually:
+
+pip install pandas pymongo
+
+2. Install Wireshark + Tshark
+
+Download from:
+https://www.wireshark.org/download.html
+
+Ensure Tshark is in PATH:
+
+tshark -v
+
+3. Install MongoDB
+
+Download MongoDB Community Server:
+https://www.mongodb.com/try/download/community
+
+Start the service:
+
+net start MongoDB
+
+
+Verify:
+
+mongosh
+use studentapp
+
+▶️ Running the System
+Step 1 — Activate Virtual Environment (optional)
+.\venv\Scripts\activate
+
+Step 2 — Start MongoDB
+net start MongoDB
+
+Step 3 — Run Automated Monitoring
+
+Go to project folder:
+
+cd Backend\Detection_Management
+
+
+Run monitor:
+
+python auto_monitor.py
+
+
+The script will:
+
+Capture 60 seconds
+
+Save capture_*.csv
+
+Analyze it
+
+Generate a summary file
+
+Insert detections into MongoDB
+
+Repeat automatically
+
+📊 Viewing Results
+1. Summaries
+
+Stored as:
+
+summary_YYYYMMDD_HHMMSS.csv
+detailed_YYYYMMDD_HHMMSS.csv
+
+2. MongoDB Records
+
+Open shell:
+
+mongosh
+use studentapp
+db.detections.find().pretty()
+
+
+You will see detection records stored with timestamps.
+
+🧠 How Classification Works
+
+model.py contains:
+
+CATEGORIES = {
+    "video": ["youtube", "googlevideo", "ytimg", "vimeo"],
+    "learning": ["udemy", "coursera", "edx"],
+    "search": ["google.", "bing.com", "duckduckgo"],
+    "social": ["facebook", "instagram", "twitter"]
+}
+
+
+When analyzing:
+
+Extract domain
+
+Check presence of keywords
+
+Assign category
+
+Insert detection into MongoDB
+
+No AI/ML is used yet — only rule-based matching.
+
+🧩 Future Improvements
+
+Machine learning for domain categorization
+
+Admin dashboard with live updates
+
+User-wise historical graphs
+
+Alert system for suspicious activity
+
+Mobile-friendly dashboard
