@@ -1,214 +1,175 @@
 🚀 Wi-Fi Activity Detection & Monitoring System
 
-A real-time network monitoring system that captures device traffic, extracts domain activity (DNS / HTTP Host / TLS SNI), classifies user behavior, generates insights, and stores detections automatically in MongoDB.
+A real-time network monitoring system that captures device activity from Wi-Fi traffic, identifies domains and applications, classifies behavior (video, social, messaging, search, etc.), and stores results in MongoDB for analytics, dashboards, and alerts.
 
-This system is designed for college projects, monitoring labs, or internal networks where administrators want to view user activity patterns in an organized dashboard.
+This project replaces CSV-based processing with live packet capture + immediate MongoDB storage, making it suitable for production use, admin dashboards, and student monitoring systems.
 
-📌 Features
-✅ 1. Automatic Packet Capture
+📌 Key Features
+✔ 1. Real-Time Wi-Fi Packet Capture
 
-Uses tshark to capture live network packets from Wi-Fi or Ethernet.
+Uses tshark to capture packet metadata from a selected Wi-Fi interface.
 
-Captures the following fields:
+Extracts:
 
-frame.time_epoch
+Source IP
 
-ip.src
+Domain (DNS, HTTP Host, TLS SNI)
 
-ip.dst
+Timestamp
 
-dns.qry.name
+✔ 2. Automatic Domain → App Mapping
 
-http.host
+Identifies which app/website was used based on the domain:
 
-tls.handshake.extensions_server_name
+Example Domain	Detected App	Category
+youtube.com	YouTube	video
+whatsapp.com	WhatsApp	messaging
+instagram.com	Instagram	social
+google.com	Google Search	search
 
-✅ 2. Real-Time Analysis
+Apps and categories are configurable in model.py & domain_map.py.
 
-Once capture is saved as CSV, the system:
+✔ 3. Direct Storage into MongoDB
 
-Cleans raw packet data
-
-Extracts the domain (host) per record
-
-Classifies activity using keyword-based logic
-
-Groups activity by user device
-
-Saves summary CSVs for reporting
-
-Generates optional insights
-
-✅ 3. MongoDB Detection Storage
-
-Each detection is inserted as a document into:
+Every detected event is immediately saved to:
 
 DB: studentapp
 Collection: detections
 
 
-Document format:
+Each document has:
 
 {
-  "roll_no": "23203A00XX",
-  "timestamp": ISODate(),
-  "reason": "Streaming Activity Detected",
-  "score": 0.82,
-  "details": "youtube.com identified"
+  "client_ip": "10.62.156.23",
+  "domain": "www.youtube.com",
+  "app_name": "YouTube",
+  "category": "video",
+  "timestamp": "<datetime>"
 }
 
-✅ 4. Automated Monitoring Loop
 
-auto_monitor.py runs continuously:
+No CSVs required.
 
-Capture 60 sec of network activity
+✔ 4. Continuous Monitoring Mode
 
-Analyze the CSV
+auto_monitor.py runs indefinitely and captures new events in real time:
 
-Generate insights
+No manual triggers needed
 
-Save detection in MongoDB
-
-Wait and repeat
-
-You can adjust duration as needed.
+Perfect for dashboards or school monitoring systems
 
 📂 Project Structure
-Backend/
- └── Detection_Management/
-      ├── auto_monitor.py
-      ├── capture.py
-      ├── analyze_activity.py
-      ├── insight_generator.py
-      ├── model.py
-      ├── generate_summaries.py
-      └── README.md  ← (this file)
+Backend/Detection_Management/
+│
+├── auto_monitor.py            # Main program (real-time monitor)
+├── capture.py                 # Tshark live capture (stream mode)
+├── analyze_activity.py        # Parses each packet and processes it
+├── domain_map.py              # Maps domain → app name
+├── model.py                   # Maps domain → category
+├── db_client.py               # MongoDB connection helper
+├── detection_store.py         # Inserts detections into MongoDB
+└── README.md                  # Project documentation
 
-File Responsibilities
-File	Purpose
-capture.py	Runs tshark to capture packets and produce CSV files
-analyze_activity.py	Analyzes packet CSVs, classifies domains, saves summaries
-model.py	Contains classification keywords for categories
-auto_monitor.py	Full automation loop (capture → analyze → insights → MongoDB)
-insight_generator.py	Creates high-level insights from summaries
-generate_summaries.py	Extra batch report generator (optional)
-🛠️ Installation
-1. Install Python packages
+⚙️ How the System Works
+Step 1: Capture packets
+
+tshark extracts domain information from:
+
+DNS Query Name
+
+HTTP Host
+
+TLS SNI
+
+Step 2: Extract domain + categorize
+
+For each packet:
+
+Identify app
+
+Categorize activity
+
+Create a detection event
+
+Step 3: Store in MongoDB
+
+Insert real-time detection into MongoDB.
+
+Step 4: Use data for dashboards
+
+Admin dashboard can fetch:
+
+Most used apps
+
+Time-based activity trends
+
+Student-specific activity logs
+
+Alerts for unusual behavior
+
+🛠 Setup Instructions
+1. Install dependencies
+
+Inside the project folder:
+
 pip install -r requirements.txt
-
-
-If you don’t have a requirements file, install manually:
-
-pip install pandas pymongo
 
 2. Install Wireshark + Tshark
 
-Download from:
+Download Wireshark:
+
 https://www.wireshark.org/download.html
 
-Ensure Tshark is in PATH:
-
-tshark -v
+Make sure tshark is available in PATH.
 
 3. Install MongoDB
 
 Download MongoDB Community Server:
+
 https://www.mongodb.com/try/download/community
 
-Start the service:
+Start MongoDB service:
 
 net start MongoDB
 
-
-Verify:
-
-mongosh
-use studentapp
-
-▶️ Running the System
-Step 1 — Activate Virtual Environment (optional)
-.\venv\Scripts\activate
-
-Step 2 — Start MongoDB
-net start MongoDB
-
-Step 3 — Run Automated Monitoring
-
-Go to project folder:
-
-cd Backend\Detection_Management
-
-
-Run monitor:
-
+4. Run the monitoring system
 python auto_monitor.py
 
 
-The script will:
+You will see:
 
-Capture 60 seconds
+📡 Starting live capture on Wi-Fi ...
+✔ Stored -> {...}
+✔ Stored -> {...}
+...
 
-Save capture_*.csv
+📊 Viewing Stored Data
 
-Analyze it
-
-Generate a summary file
-
-Insert detections into MongoDB
-
-Repeat automatically
-
-📊 Viewing Results
-1. Summaries
-
-Stored as:
-
-summary_YYYYMMDD_HHMMSS.csv
-detailed_YYYYMMDD_HHMMSS.csv
-
-2. MongoDB Records
-
-Open shell:
+Open Mongo shell:
 
 mongosh
 use studentapp
 db.detections.find().pretty()
 
 
-You will see detection records stored with timestamps.
+Or use MongoDB Compass for GUI.
 
-🧠 How Classification Works
+🧠 Future Enhancements
 
-model.py contains:
+Based on your project abstract:
 
-CATEGORIES = {
-    "video": ["youtube", "googlevideo", "ytimg", "vimeo"],
-    "learning": ["udemy", "coursera", "edx"],
-    "search": ["google.", "bing.com", "duckduckgo"],
-    "social": ["facebook", "instagram", "twitter"]
-}
+To Add Next:
 
+ML-based anomaly detection
 
-When analyzing:
+Usage pattern prediction
 
-Extract domain
+Threat detection model
 
-Check presence of keywords
+Device authentication integration
 
-Assign category
+REST API for admin dashboard
 
-Insert detection into MongoDB
+Attendance & session tracking
 
-No AI/ML is used yet — only rule-based matching.
-
-🧩 Future Improvements
-
-Machine learning for domain categorization
-
-Admin dashboard with live updates
-
-User-wise historical graphs
-
-Alert system for suspicious activity
-
-Mobile-friendly dashboard
+Bandwidth allocation engine
