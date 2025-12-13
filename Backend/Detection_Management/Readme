@@ -1,175 +1,227 @@
-🚀 Wi-Fi Activity Detection & Monitoring System
+Wi-Fi Activity Detection & Monitoring System
+Overview
 
-A real-time network monitoring system that captures device activity from Wi-Fi traffic, identifies domains and applications, classifies behavior (video, social, messaging, search, etc.), and stores results in MongoDB for analytics, dashboards, and alerts.
+This project implements a real-time Wi-Fi activity detection system that monitors devices connected to a network and identifies which application or website is being used.
+Detected activities are stored directly in MongoDB for live dashboard visualization, reporting, and future anomaly detection.
 
-This project replaces CSV-based processing with live packet capture + immediate MongoDB storage, making it suitable for production use, admin dashboards, and student monitoring systems.
+The system does not inspect packet payloads. It relies on DNS queries, TLS SNI, and HTTP host headers, making it privacy-aware while still effective.
 
-📌 Key Features
-✔ 1. Real-Time Wi-Fi Packet Capture
+Key Features (Current)
 
-Uses tshark to capture packet metadata from a selected Wi-Fi interface.
+✅ Live Wi-Fi traffic capture using tshark
 
-Extracts:
+✅ Identify websites and applications (YouTube, WhatsApp, Google, etc.)
 
-Source IP
+✅ Categorize activity (video, messaging, search, general)
 
-Domain (DNS, HTTP Host, TLS SNI)
+✅ Store detections directly in MongoDB
 
-Timestamp
+✅ Ready for dashboard integration
 
-✔ 2. Automatic Domain → App Mapping
+✅ Modular and extensible design
 
-Identifies which app/website was used based on the domain:
+Tech Stack
+Backend
 
-Example Domain	Detected App	Category
-youtube.com	YouTube	video
-whatsapp.com	WhatsApp	messaging
-instagram.com	Instagram	social
-google.com	Google Search	search
+Python 3.10+
 
-Apps and categories are configurable in model.py & domain_map.py.
+Tshark (Wireshark CLI)
 
-✔ 3. Direct Storage into MongoDB
+MongoDB (NoSQL)
 
-Every detected event is immediately saved to:
+Database
 
-DB: studentapp
+MongoDB Community Server
+
+Database: studentapp
+
 Collection: detections
 
+Project Structure
+Detection_Management/
+│
+├── auto_monitor.py          # Main entry point (real-time monitoring)
+├── capture.py               # Live packet capture via tshark
+├── analyze_activity.py      # Detection + classification logic
+├── model.py                 # Activity category rules
+├── domain_map.py            # Domain → Application mapping
+├── db_client.py             # MongoDB connection handler
+├── save_detections_batch.py # MongoDB insert logic
+├── README.md
+└── venv/                    # Python virtual environment
 
-Each document has:
+
+❌ insight_generator.py and generate_summaries.py are intentionally removed
+❌ No CSV files are generated anymore
+
+Prerequisites
+System Requirements
+
+Windows 10 / 11
+
+Administrator access
+
+Required Software
+
+Python 3.10+
+
+Wireshark (with Tshark)
+
+MongoDB Community Server
+
+Git
+
+Installation & Setup
+1. Clone Repository
+git clone <REPO_URL>
+cd wifi-management/Backend/Detection_Management
+
+2. Create Virtual Environment
+python -m venv venv
+venv\Scripts\activate
+
+3. Install Dependencies
+pip install pymongo pandas
+
+4. Install & Verify Tshark
+tshark --version
+
+
+If not found:
+
+Ensure Wireshark is installed
+
+Ensure Tshark is added to PATH
+
+5. Install & Start MongoDB
+net start MongoDB
+
+
+Verify:
+
+mongosh
+
+Database Configuration
+
+MongoDB is used directly — no CSV or intermediate files.
+
+Database: studentapp
+Collection: detections
+
+Example stored document:
 
 {
   "client_ip": "10.62.156.23",
   "domain": "www.youtube.com",
   "app_name": "YouTube",
   "category": "video",
-  "timestamp": "<datetime>"
+  "timestamp": ISODate("2025-12-12T19:41:32Z"),
+  "reason": "video activity",
+  "score": 1,
+  "details": "domain=www.youtube.com"
 }
 
+Running the Project
+1. Identify Network Interface
+tshark -D
 
-No CSVs required.
 
-✔ 4. Continuous Monitoring Mode
+Note the interface name (example: Wi-Fi).
 
-auto_monitor.py runs indefinitely and captures new events in real time:
-
-No manual triggers needed
-
-Perfect for dashboards or school monitoring systems
-
-📂 Project Structure
-Backend/Detection_Management/
-│
-├── auto_monitor.py            # Main program (real-time monitor)
-├── capture.py                 # Tshark live capture (stream mode)
-├── analyze_activity.py        # Parses each packet and processes it
-├── domain_map.py              # Maps domain → app name
-├── model.py                   # Maps domain → category
-├── db_client.py               # MongoDB connection helper
-├── detection_store.py         # Inserts detections into MongoDB
-└── README.md                  # Project documentation
-
-⚙️ How the System Works
-Step 1: Capture packets
-
-tshark extracts domain information from:
-
-DNS Query Name
-
-HTTP Host
-
-TLS SNI
-
-Step 2: Extract domain + categorize
-
-For each packet:
-
-Identify app
-
-Categorize activity
-
-Create a detection event
-
-Step 3: Store in MongoDB
-
-Insert real-time detection into MongoDB.
-
-Step 4: Use data for dashboards
-
-Admin dashboard can fetch:
-
-Most used apps
-
-Time-based activity trends
-
-Student-specific activity logs
-
-Alerts for unusual behavior
-
-🛠 Setup Instructions
-1. Install dependencies
-
-Inside the project folder:
-
-pip install -r requirements.txt
-
-2. Install Wireshark + Tshark
-
-Download Wireshark:
-
-https://www.wireshark.org/download.html
-
-Make sure tshark is available in PATH.
-
-3. Install MongoDB
-
-Download MongoDB Community Server:
-
-https://www.mongodb.com/try/download/community
-
-Start MongoDB service:
-
-net start MongoDB
-
-4. Run the monitoring system
+2. Start Real-Time Monitoring
 python auto_monitor.py
 
 
-You will see:
+Output example:
 
-📡 Starting live capture on Wi-Fi ...
-✔ Stored -> {...}
-✔ Stored -> {...}
-...
+🚀 Real-time monitoring started...
+✔ Stored -> YouTube activity
+✔ Stored -> WhatsApp activity
+✔ Stored -> Google Search activity
 
-📊 Viewing Stored Data
 
-Open Mongo shell:
+Stop anytime:
 
+CTRL + C
+
+Viewing Data in MongoDB
 mongosh
 use studentapp
 db.detections.find().pretty()
 
+How Detection Works (High Level)
 
-Or use MongoDB Compass for GUI.
+capture.py
 
-🧠 Future Enhancements
+Uses Tshark to stream DNS / TLS / HTTP metadata
 
-Based on your project abstract:
+analyze_activity.py
 
-To Add Next:
+Extracts domain names
 
-ML-based anomaly detection
+Maps domain → app name
 
-Usage pattern prediction
+Classifies category
 
-Threat detection model
+Creates detection objects
 
-Device authentication integration
+save_detections_batch.py
 
-REST API for admin dashboard
+Inserts detections directly into MongoDB
 
-Attendance & session tracking
+auto_monitor.py
 
-Bandwidth allocation engine
+Orchestrates live capture + analysis loop
+
+What Is Completed
+
+✔ Real-time monitoring
+
+✔ App / website identification
+
+✔ MongoDB integration
+
+✔ Dashboard-ready backend
+
+✔ Clean modular architecture
+
+What Is Pending / Future Scope
+
+⏳ Anomaly detection (ML-based)
+
+⏳ Automatic user banning
+
+⏳ Risk scoring per device
+
+⏳ Time-window aggregation
+
+⏳ Predictive traffic analysis
+
+⏳ Admin-defined policy rules
+
+Privacy Considerations
+
+No payload inspection
+
+No content logging
+
+Only metadata (DNS, SNI, hostnames)
+
+Designed for educational & administrative use
+
+Notes for Evaluators / Mentors
+
+This is rule-based detection, not ML yet
+
+Architecture is ML-ready
+
+MongoDB schema supports real-time dashboards
+
+Scalable for campus / enterprise networks
+
+Author
+
+Capstone Project
+Wi-Fi Management & Activity Detection System
+Backend: Python + MongoDB
+Frontend: React (handled separately)
