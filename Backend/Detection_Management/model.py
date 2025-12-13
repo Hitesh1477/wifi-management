@@ -1,3 +1,5 @@
+# model.py
+
 CATEGORIES = {
     "video": ["youtube", "googlevideo", "netflix"],
     "social": ["instagram", "facebook", "tiktok", "snapchat"],

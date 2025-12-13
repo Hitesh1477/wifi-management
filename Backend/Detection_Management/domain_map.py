@@ -1,35 +1,22 @@
+# domain_map.py
+
 DOMAIN_APP_MAP = {
-    "youtube.com": "YouTube",
-    "googlevideo.com": "YouTube Streaming",
-    "ytimg.com": "YouTube",
-    "youtubei.googleapis.com": "YouTube",
-
-    "google.com": "Google Search",
-    "google.co.in": "Google Search",
-
-    "whatsapp.net": "WhatsApp",
-    "g.whatsapp.net": "WhatsApp",
-
-    "instagram.com": "Instagram",
-    "cdninstagram.com": "Instagram",
-    "fbcdn.net": "Facebook/Instagram CDN",
-
-    "facebook.com": "Facebook",
-
-    "msftconnecttest.com": "Microsoft Connectivity Test",
-
-    "pubsub.googleapis.com": "Google Services",
-    "play.googleapis.com": "Google Play Store",
-    "android.clients.google.com": "Google Android Services",
+    "youtube": "YouTube",
+    "googlevideo": "YouTube Streaming",
+    "ytimg": "YouTube",
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "whatsapp": "WhatsApp",
+    "netflix": "Netflix",
+    "google.": "Google Search",
+    "bing.com": "Bing Search",
+    "duckduckgo": "DuckDuckGo",
+    "play.googleapis.com": "Google Play Store"
 }
 
-def identify_app(domain: str):
-    domain = domain.lower()
+def get_app_name(domain: str) -> str:
+    d = domain.lower()
     for key, app in DOMAIN_APP_MAP.items():
-        if key in domain:
+        if key in d:
             return app
-
-    if "googlevideo.com" in domain:
-        return "YouTube Streaming"
-
     return "Unknown"

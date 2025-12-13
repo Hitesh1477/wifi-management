@@ -1,32 +1,31 @@
-from domain_map import identify_app
+# analyze_activity.py
+import pandas as pd
+from datetime import datetime
 from model import classify
-from save_detections_batch import save_detection
+from domain_map import get_app_name
+from save_detections_batch import save_detections_batch
 
-def process_stream_line(line):
-    try:
-        parts = line.split(",")
+def analyze_rows(rows):
+    detections = []
 
-        timestamp = parts[0]
-        src_ip = parts[1]
-        dst_ip = parts[2]
-        dns = parts[3] if len(parts) > 3 else ""
-        http = parts[4] if len(parts) > 4 else ""
-        tls = parts[5] if len(parts) > 5 else ""
-
-        domain = dns or http or tls
+    for r in rows:
+        domain = r.get("domain", "").lower()
         if not domain:
-            return
+            continue
 
-        app_name = identify_app(domain)
+        app_name = get_app_name(domain)
         category = classify(domain)
 
-        save_detection({
-            "timestamp": timestamp,
-            "client_ip": src_ip,
+        detections.append({
+            "roll_no": r.get("client_ip"),     # using IP as roll_no for now
+            "client_ip": r.get("client_ip"),
             "domain": domain,
             "app_name": app_name,
-            "category": category
+            "category": category,
+            "timestamp": r.get("timestamp", datetime.utcnow()),
+            "reason": f"{app_name} activity",
+            "score": 1,
+            "details": f"domain={domain}"
         })
 
-    except Exception as e:
-        print("Error parsing line:", e)
+    save_detections_batch(detections)
