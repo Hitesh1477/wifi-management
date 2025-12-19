@@ -1,0 +1,227 @@
+Wi-Fi Activity Detection & Monitoring System
+Overview
+
+This project implements a real-time Wi-Fi activity detection system that monitors devices connected to a network and identifies which application or website is being used.
+Detected activities are stored directly in MongoDB for live dashboard visualization, reporting, and future anomaly detection.
+
+The system does not inspect packet payloads. It relies on DNS queries, TLS SNI, and HTTP host headers, making it privacy-aware while still effective.
+
+Key Features (Current)
+
+✅ Live Wi-Fi traffic capture using tshark
+
+✅ Identify websites and applications (YouTube, WhatsApp, Google, etc.)
+
+✅ Categorize activity (video, messaging, search, general)
+
+✅ Store detections directly in MongoDB
+
+✅ Ready for dashboard integration
+
+✅ Modular and extensible design
+
+Tech Stack
+Backend
+
+Python 3.10+
+
+Tshark (Wireshark CLI)
+
+MongoDB (NoSQL)
+
+Database
+
+MongoDB Community Server
+
+Database: studentapp
+
+Collection: detections
+
+Project Structure
+Detection_Management/
+│
+├── auto_monitor.py          # Main entry point (real-time monitoring)
+├── capture.py               # Live packet capture via tshark
+├── analyze_activity.py      # Detection + classification logic
+├── model.py                 # Activity category rules
+├── domain_map.py            # Domain → Application mapping
+├── db_client.py             # MongoDB connection handler
+├── save_detections_batch.py # MongoDB insert logic
+├── README.md
+└── venv/                    # Python virtual environment
+
+
+❌ insight_generator.py and generate_summaries.py are intentionally removed
+❌ No CSV files are generated anymore
+
+Prerequisites
+System Requirements
+
+Windows 10 / 11
+
+Administrator access
+
+Required Software
+
+Python 3.10+
+
+Wireshark (with Tshark)
+
+MongoDB Community Server
+
+Git
+
+Installation & Setup
+1. Clone Repository
+git clone <REPO_URL>
+cd wifi-management/Backend/Detection_Management
+
+2. Create Virtual Environment
+python -m venv venv
+venv\Scripts\activate
+
+3. Install Dependencies
+pip install pymongo pandas
+
+4. Install & Verify Tshark
+tshark --version
+
+
+If not found:
+
+Ensure Wireshark is installed
+
+Ensure Tshark is added to PATH
+
+5. Install & Start MongoDB
+net start MongoDB
+
+
+Verify:
+
+mongosh
+
+Database Configuration
+
+MongoDB is used directly — no CSV or intermediate files.
+
+Database: studentapp
+Collection: detections
+
+Example stored document:
+
+{
+  "client_ip": "10.62.156.23",
+  "domain": "www.youtube.com",
+  "app_name": "YouTube",
+  "category": "video",
+  "timestamp": ISODate("2025-12-12T19:41:32Z"),
+  "reason": "video activity",
+  "score": 1,
+  "details": "domain=www.youtube.com"
+}
+
+Running the Project
+1. Identify Network Interface
+tshark -D
+
+
+Note the interface name (example: Wi-Fi).
+
+2. Start Real-Time Monitoring
+python auto_monitor.py
+
+
+Output example:
+
+🚀 Real-time monitoring started...
+✔ Stored -> YouTube activity
+✔ Stored -> WhatsApp activity
+✔ Stored -> Google Search activity
+
+
+Stop anytime:
+
+CTRL + C
+
+Viewing Data in MongoDB
+mongosh
+use studentapp
+db.detections.find().pretty()
+
+How Detection Works (High Level)
+
+capture.py
+
+Uses Tshark to stream DNS / TLS / HTTP metadata
+
+analyze_activity.py
+
+Extracts domain names
+
+Maps domain → app name
+
+Classifies category
+
+Creates detection objects
+
+save_detections_batch.py
+
+Inserts detections directly into MongoDB
+
+auto_monitor.py
+
+Orchestrates live capture + analysis loop
+
+What Is Completed
+
+✔ Real-time monitoring
+
+✔ App / website identification
+
+✔ MongoDB integration
+
+✔ Dashboard-ready backend
+
+✔ Clean modular architecture
+
+What Is Pending / Future Scope
+
+⏳ Anomaly detection (ML-based)
+
+⏳ Automatic user banning
+
+⏳ Risk scoring per device
+
+⏳ Time-window aggregation
+
+⏳ Predictive traffic analysis
+
+⏳ Admin-defined policy rules
+
+Privacy Considerations
+
+No payload inspection
+
+No content logging
+
+Only metadata (DNS, SNI, hostnames)
+
+Designed for educational & administrative use
+
+Notes for Evaluators / Mentors
+
+This is rule-based detection, not ML yet
+
+Architecture is ML-ready
+
+MongoDB schema supports real-time dashboards
+
+Scalable for campus / enterprise networks
+
+Author
+
+Capstone Project
+Wi-Fi Management & Activity Detection System
+Backend: Python + MongoDB
+Frontend: React (handled separately)

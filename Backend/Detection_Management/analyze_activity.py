@@ -1,48 +1,58 @@
+# analyze_activity.py
 import pandas as pd
-import os
 from datetime import datetime
 from model import classify
+from domain_map import get_app_name
+from save_detections_batch import save_detections_batch
+from session_lookup import get_roll_no_from_ip
 
-def analyze_traffic(csv_path):
-    print(f"📊 Analyzing {csv_path} ...")
-    df = pd.read_csv(csv_path, sep=',', engine='python', on_bad_lines='skip')
+def analyze_rows(rows):
+    if not rows:
+        return
 
-    # Merge DNS/HTTP/TLS host fields
-    host_cols = ['dns.qry.name', 'http.host', 'tls.handshake.extensions_server_name']
-    for col in host_cols:
-        if col not in df.columns:
-            df[col] = None
-    df['host'] = df[host_cols].bfill(axis=1).iloc[:, 0]
-    df.dropna(subset=['host'], inplace=True)
+    detections = []
+    seen_activities = set()  # ✅ Track unique (roll_no, domain) pairs to avoid duplicates
 
-    # Convert timestamp and bucket into 10s intervals
-    df['time'] = pd.to_datetime(df['frame.time_epoch'], unit='s', errors='coerce')
-    df['time_bucket'] = (df['frame.time_epoch'] // 10) * 10  # group every 10s
-    df['time_bucket'] = pd.to_datetime(df['time_bucket'], unit='s')
+    try:
+        for r in rows:
+            try:
+                client_ip = r.get("client_ip")
+                domain = r.get("domain", "").lower()
+                if not domain or not client_ip:
+                    continue
 
-    # Classify domains
-    df['category'] = df['host'].apply(classify)
+                # ✅ Lookup actual roll_no from IP address via active sessions
+                roll_no = get_roll_no_from_ip(client_ip)
 
-    # Group by 10s interval and IP
-    summary = (
-        df.groupby(['time_bucket', 'ip.src', 'category'])
-        .size()
-        .reset_index(name='packet_count')
-    )
+                # ✅ Create unique key to avoid duplicate entries in same batch
+                activity_key = (roll_no, domain)
+                if activity_key in seen_activities:
+                    continue  # Skip duplicate
+                seen_activities.add(activity_key)
 
-    # Save summarized and detailed logs
-    detail_path = csv_path.replace("capture_", "detailed_")
-    summary_path = csv_path.replace("capture_", "summary_")
+                app_name = get_app_name(domain)
+                category = classify(domain)
 
-    df[['time', 'ip.src', 'ip.dst', 'host', 'category']].to_csv(detail_path, index=False)
-    summary.to_csv(summary_path, index=False)
+                detections.append({
+                    "roll_no": roll_no,  # ✅ Now uses actual student roll number
+                    "client_ip": client_ip,
+                    "domain": domain,
+                    "app_name": app_name,
+                    "category": category,
+                    "timestamp": r.get("timestamp", datetime.utcnow()),
+                    "reason": f"{app_name} activity",
+                    "score": 1,
+                    "details": f"domain={domain}"
+                })
+            except Exception as e:
+                print(f"⚠️ Error analyzing row: {e}")
+                continue
 
-    print(f"✅ Detailed log -> {detail_path}")
-    print(f"✅ Summary (10s grouped) -> {summary_path}")
-    return summary
+        if detections:
+            save_detections_batch(detections)
+            print(f"✅ Processed {len(rows)} packets, saved {len(detections)} unique detections")
+        else:
+            print("⚠️ No valid detections to analyze")
 
-if __name__ == "__main__":
-    # Example: test manually on one file
-    test_file = "capture_20251103_191137.csv"
-    if os.path.exists(test_file):
-        analyze_traffic(test_file)
+    except Exception as e:
+        print(f"❌ Error in analyze_rows: {e}")
