@@ -50,3 +50,4 @@ def auto_monitor(interface="Wi-Fi", interval_minutes=1):
 
 if __name__ == "__main__":
     auto_monitor("Wi-Fi")
+    auto_monitor("Wi-Fi")
