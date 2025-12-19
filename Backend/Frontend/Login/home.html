@@ -82,6 +82,23 @@
     document.getElementById("rollDisplay").innerText = localStorage.getItem("roll_no");
 
     function logoutUser() {
+        const roll_no = localStorage.getItem("roll_no");
+        
+        // ✅ Call backend to delete session
+        if (roll_no) {
+            fetch("http://127.0.0.1:5000/logout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roll_no })
+            })
+            .then(() => {
+                console.log("✅ Session deleted on server");
+            })
+            .catch(err => {
+                console.error("❌ Logout error:", err);
+            });
+        }
+        
         localStorage.clear();
         window.location.href = "index.html";
     }

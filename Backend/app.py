@@ -18,6 +18,7 @@ client = MongoClient("mongodb://localhost:27017/")
 db = client['studentapp']
 users_collection = db['users']
 admins_collection = db['admins']
+sessions_collection = db['active_sessions']
 
 # ✅ Register admin blueprint (MUST be after Flask app init)
 app.register_blueprint(admin_routes)
@@ -59,6 +60,23 @@ def login():
     if not user or not check_password_hash(user['password'], password):
         return jsonify({"message": "Invalid credentials"}), 401
 
+    # ✅ Get client IP address
+    client_ip = request.remote_addr
+    
+    # ✅ Create/update session with IP mapping
+    sessions_collection = db['active_sessions']
+    sessions_collection.update_one(
+        {"roll_no": roll_no},
+        {"$set": {
+            "roll_no": roll_no,
+            "client_ip": client_ip,
+            "login_time": datetime.datetime.utcnow(),
+            "status": "active"
+        }},
+        upsert=True
+    )
+    print(f"✅ Session created: {roll_no} -> {client_ip}")
+
     token = jwt.encode({
         "roll_no": roll_no,
         "role": user["role"],
@@ -67,6 +85,20 @@ def login():
 
     return jsonify({"message": "Login successful", "token": token})
 
+
+# ✅ User Logout Route
+@app.route('/logout', methods=['POST'])
+def logout():
+    data = request.get_json()
+    roll_no = data.get('roll_no')
+    
+    if roll_no:
+        sessions_collection = db['active_sessions']
+        sessions_collection.delete_one({"roll_no": roll_no})
+        print(f"✅ Session deleted: {roll_no}")
+        return jsonify({"message": "Logout successful"}), 200
+    
+    return jsonify({"message": "Roll number required"}), 400
 
 # ✅ Root Test Route
 @app.route('/')

@@ -36,6 +36,23 @@ function loginUser() {
 
 // ✅ Logout function (use in future)
 function logoutUser() {
+    const roll_no = localStorage.getItem("roll_no");
+    
+    // ✅ Call backend to delete session
+    if (roll_no) {
+        fetch("http://127.0.0.1:5000/logout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ roll_no })
+        })
+        .then(() => {
+            console.log("Session deleted on server");
+        })
+        .catch(err => {
+            console.error("Logout error:", err);
+        });
+    }
+    
     localStorage.removeItem("token");
     localStorage.removeItem("roll_no");
     window.location.href = "index.html";
