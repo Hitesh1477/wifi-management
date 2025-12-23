@@ -86,13 +86,47 @@ def admin_stats():
 @admin_routes.route('/admin/clients', methods=['GET'])
 @admin_required
 def admin_clients():
-    # Return list of non-admin users (do not expose passwords)
-    clients_cursor = users_collection.find({"role": {"$ne": "admin"}}, {"password": 0})
-    clients = []
-    for c in clients_cursor:
-        c['_id'] = str(c.get('_id'))
-        clients.append(c)
-    return jsonify({"clients": clients}), 200
+    """Return list of non-admin users with their latest activity from detections"""
+    try:
+        clients_cursor = users_collection.find({"role": {"$ne": "admin"}}, {"password": 0})
+        clients = []
+        
+        # Get detections collection for activity lookup
+        detections_col = db['detections'] if 'detections' in db.list_collection_names() else None
+        
+        for c in clients_cursor:
+            c['_id'] = str(c.get('_id'))
+            roll_no = c.get('roll_no')
+            
+            # Get latest activity from detections
+            if detections_col is not None and roll_no:
+                try:
+                    # Get most recent detection for this user
+                    latest = detections_col.find_one(
+                        {"roll_no": roll_no}, 
+                        sort=[("timestamp", -1)]
+                    )
+                    if latest:
+                        c['activity'] = f"{latest.get('app_name', 'Unknown')} ({latest.get('domain', 'N/A')})"
+                    else:
+                        c['activity'] = c.get('activity', 'Idle')
+                    
+                    # Count detections as rough "data usage" (number of requests)
+                    detection_count = detections_col.count_documents({"roll_no": roll_no})
+                    c['data_usage'] = round(detection_count * 0.01, 2)
+                except Exception:
+                    c['activity'] = c.get('activity', 'Idle')
+                    c['data_usage'] = 0
+            else:
+                c['activity'] = c.get('activity', 'Idle')
+                c['data_usage'] = 0
+            
+            clients.append(c)
+        
+        return jsonify({"clients": clients}), 200
+    except Exception as e:
+        print(f"Error in admin_clients: {e}")
+        return jsonify({"error": str(e), "clients": []}), 500
 
 @admin_routes.route('/admin/clients', methods=['POST'])
 @admin_required
@@ -155,6 +189,10 @@ def admin_update_client(id):
     if 'activity' in data and isinstance(data['activity'], str):
         updates['activity'] = data['activity']
 
+    # Handle bandwidth_limit - can be string (preset) or number (custom Mbps)
+    if 'bandwidth_limit' in data:
+        updates['bandwidth_limit'] = data['bandwidth_limit']
+
     if not updates:
         return jsonify({"message": "No changes"}), 400
 
@@ -166,11 +204,150 @@ def admin_update_client(id):
 @admin_routes.route('/admin/logs', methods=['GET'])
 @admin_required
 def admin_logs():
-    # If you have a 'logs' collection, return recent logs; otherwise return empty list
+    """Return network activity logs from the detections collection"""
     logs = []
-    if 'logs' in db.list_collection_names():
-        logs_cursor = db['logs'].find().sort([('_id', -1)]).limit(100)
-        for l in logs_cursor:
-            l['_id'] = str(l.get('_id'))
-            logs.append(l)
+    
+    # Get detections from the detections collection
+    if 'detections' in db.list_collection_names():
+        detections_cursor = db['detections'].find().sort([('timestamp', -1)]).limit(100)
+        for d in detections_cursor:
+            # Format timestamp
+            ts = d.get('timestamp')
+            if ts:
+                time_str = ts.strftime('%I:%M:%S %p') if hasattr(ts, 'strftime') else str(ts)
+            else:
+                time_str = 'N/A'
+            
+            # Determine log level based on category
+            category = d.get('category', 'general').lower()
+            if category in ('proxy', 'vpn', 'adult', 'malware'):
+                level = 'error'
+            elif category in ('gaming', 'streaming', 'social'):
+                level = 'warn'
+            else:
+                level = 'info'
+            
+            logs.append({
+                '_id': str(d.get('_id')),
+                'time': time_str,
+                'level': level,
+                'user': d.get('roll_no', 'Unknown'),
+                'ip': d.get('client_ip', 'N/A'),
+                'action': f"Accessed {d.get('domain', 'unknown')} ({d.get('app_name', 'Unknown')})",
+                'domain': d.get('domain'),
+                'category': d.get('category', 'general'),
+                'app_name': d.get('app_name', 'Unknown')
+            })
+    
     return jsonify({"logs": logs}), 200
+
+
+@admin_routes.route('/admin/reports', methods=['POST'])
+@admin_required
+def admin_reports():
+    """Generate reports from real detection data"""
+    data = request.get_json() or {}
+    report_type = data.get('type', 'Top Bandwidth Users')
+    time_range = data.get('range', 'weekly')
+    
+    try:
+        detections_col = db['detections'] if 'detections' in db.list_collection_names() else None
+        
+        # Calculate time filter based on range
+        now = datetime.datetime.utcnow()
+        if time_range == 'daily':
+            start_date = now - datetime.timedelta(days=1)
+        elif time_range == 'weekly':
+            start_date = now - datetime.timedelta(weeks=1)
+        else:  # monthly
+            start_date = now - datetime.timedelta(days=30)
+        
+        headers = []
+        rows = []
+        
+        if report_type == 'Top Bandwidth Users':
+            headers = ['Rank', 'Student ID', 'Requests Count', 'Top Domain']
+            
+            if detections_col is not None:
+                # Aggregate detections by roll_no
+                pipeline = [
+                    {"$match": {"timestamp": {"$gte": start_date}}},
+                    {"$group": {
+                        "_id": "$roll_no",
+                        "count": {"$sum": 1},
+                        "domains": {"$push": "$domain"}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ]
+                results = list(detections_col.aggregate(pipeline))
+                
+                for i, r in enumerate(results):
+                    # Find most common domain
+                    domains = r.get('domains', [])
+                    top_domain = max(set(domains), key=domains.count) if domains else 'N/A'
+                    rows.append([
+                        f"#{i+1}",
+                        r.get('_id', 'Unknown'),
+                        str(r.get('count', 0)),
+                        top_domain
+                    ])
+        
+        elif report_type == 'Blocked Site Activity':
+            headers = ['Domain', 'Category', 'Access Count', 'Users']
+            
+            if detections_col is not None:
+                # Aggregate by domain and category
+                pipeline = [
+                    {"$match": {"timestamp": {"$gte": start_date}}},
+                    {"$group": {
+                        "_id": {"domain": "$domain", "category": "$category"},
+                        "count": {"$sum": 1},
+                        "users": {"$addToSet": "$roll_no"}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 20}
+                ]
+                results = list(detections_col.aggregate(pipeline))
+                
+                for r in results:
+                    domain = r.get('_id', {}).get('domain', 'Unknown')
+                    category = r.get('_id', {}).get('category', 'general')
+                    users = r.get('users', [])
+                    rows.append([
+                        domain,
+                        category,
+                        str(r.get('count', 0)),
+                        ', '.join(users[:3]) + ('...' if len(users) > 3 else '')
+                    ])
+        
+        elif report_type == 'Full Network Audit':
+            headers = ['Time', 'Student', 'IP', 'Domain', 'Category']
+            
+            if detections_col is not None:
+                # Get recent detections
+                detections = list(detections_col.find(
+                    {"timestamp": {"$gte": start_date}}
+                ).sort([("timestamp", -1)]).limit(50))
+                
+                for d in detections:
+                    ts = d.get('timestamp')
+                    time_str = ts.strftime('%Y-%m-%d %H:%M') if hasattr(ts, 'strftime') else str(ts)[:16]
+                    rows.append([
+                        time_str,
+                        d.get('roll_no', 'Unknown'),
+                        d.get('client_ip', 'N/A'),
+                        d.get('domain', 'N/A'),
+                        d.get('category', 'general')
+                    ])
+        
+        return jsonify({
+            "headers": headers,
+            "data": rows,
+            "title": f"{time_range.capitalize()} {report_type}",
+            "generated_at": now.isoformat()
+        }), 200
+        
+    except Exception as e:
+        print(f"Error generating report: {e}")
+        return jsonify({"error": str(e), "headers": [], "data": []}), 500

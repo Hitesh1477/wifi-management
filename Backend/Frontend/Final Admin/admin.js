@@ -170,7 +170,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!tbody) return;
         const token = localStorage.getItem('admin_token');
         if (!token) return;
-        fetch('http://127.0.0.1:5000/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
+        fetch('/api/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
             .then(res => res.json())
             .then(({ clients }) => {
                 tbody.innerHTML = '';
@@ -219,50 +219,115 @@ document.addEventListener("DOMContentLoaded", () => {
     function initBandwidth() {
         const bandwidthListBody = document.getElementById("bandwidth-list-body");
         if (!bandwidthListBody) return;
-        bandwidthListBody.innerHTML = "";
-        db.clients.forEach(client => {
-            if (client.studentId === 'ADMIN') return;
-            const limit = db.bandwidthLimits[client.id];
-            const isCustom = typeof limit === 'number';
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td>${client.studentId} (${client.device})</td>
-                <td>${client.data} GB</td>
-                <td>${client.activity}</td> 
-                <td>
-                    <div class="bandwidth-control-cell">
-                        <select class="limit-select" data-id="${client.id}">
-                            <option value="vlow" ${limit === 'vlow' ? 'selected' : ''}>Very Low (2 Mbps)</option>
-                            <option value="low" ${limit === 'low' ? 'selected' : ''}>Low (10 Mbps)</option>
-                            <option value="standard" ${!limit || limit === 'standard' ? 'selected' : ''}>Standard (25 Mbps)</option>
-                            <option value="high" ${limit === 'high' ? 'selected' : ''}>High (100 Mbps)</option>
-                            <option value="unlimited" ${limit === 'unlimited' ? 'selected' : ''}>Unlimited</option>
-                            <option value="custom" ${isCustom ? 'selected' : ''}>Manual...</option>
-                        </select>
-                        <span class="custom-bw-group ${isCustom ? '' : 'hidden'}">
-                            <input type="number" class="custom-bw-input" data-id="${client.id}" value="${isCustom ? limit : '50'}" min="1">
-                            <span>Mbps</span>
-                        </span>
-                    </div>
-                </td>
-                <td class="action-buttons">
-                    <button class="btn ${client.blocked ? 'btn-success' : 'btn-danger'} btn-block" data-id="${client.id}">
-                        ${client.blocked ? 'Unblock' : 'Block'}
-                    </button>
-                </td>
-            `;
-            bandwidthListBody.appendChild(row);
+        
+        // Show loading
+        bandwidthListBody.innerHTML = "<tr><td colspan='5'>Loading clients...</td></tr>";
+        
+        const token = localStorage.getItem('admin_token');
+        if (!token) {
+            bandwidthListBody.innerHTML = "<tr><td colspan='5'>Please login as admin</td></tr>";
+            return;
+        }
+        
+        // Fetch clients from API
+        fetch('/api/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(res => res.json())
+        .then(data => {
+            const clients = data.clients || [];
+            bandwidthListBody.innerHTML = "";
+            
+            if (clients.length === 0) {
+                bandwidthListBody.innerHTML = "<tr><td colspan='5'>No students registered yet</td></tr>";
+                return;
+            }
+            
+            clients.forEach(client => {
+                if (client.role === 'admin') return;
+                
+                const clientId = client._id || client.id;
+                const isBlocked = client.blocked === true;
+                const limit = client.bandwidth_limit || 'standard';
+                const isCustom = typeof limit === 'number';
+                const dataUsage = client.data_usage || '0';
+                const activity = client.activity || 'Idle';
+                
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${client.roll_no || client.name || 'Unknown'}</td>
+                    <td>${dataUsage} GB</td>
+                    <td>${activity}</td>
+                    <td>
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="vlow" ${limit === 'vlow' ? 'selected' : ''}>Very Low (2 Mbps)</option>
+                                <option value="low" ${limit === 'low' ? 'selected' : ''}>Low (10 Mbps)</option>
+                                <option value="standard" ${!limit || limit === 'standard' ? 'selected' : ''}>Standard (25 Mbps)</option>
+                                <option value="high" ${limit === 'high' ? 'selected' : ''}>High (100 Mbps)</option>
+                                <option value="unlimited" ${limit === 'unlimited' ? 'selected' : ''}>Unlimited</option>
+                                <option value="custom" ${isCustom ? 'selected' : ''}>Manual...</option>
+                            </select>
+                            <span class="custom-bw-group ${isCustom ? '' : 'hidden'}">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${isCustom ? limit : '50'}" min="1">
+                                <span>Mbps</span>
+                            </span>
+                        </div>
+                    </td>
+                    <td class="action-buttons">
+                        <button class="btn ${isBlocked ? 'btn-success' : 'btn-danger'}" onclick="toggleBlock('${clientId}', ${isBlocked})">
+                            ${isBlocked ? 'Unblock' : 'Block'}
+                        </button>
+                    </td>
+                `;
+                bandwidthListBody.appendChild(row);
+            });
+        })
+        .catch(err => {
+            console.error('Error fetching clients:', err);
+            bandwidthListBody.innerHTML = "<tr><td colspan='5'>Error loading clients</td></tr>";
         });
     }
 
     function initLogs() {
         const logBody = document.getElementById("log-body");
         if (!logBody) return;
-        logBody.innerHTML = "";
-        db.logs.forEach(log => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${log.time}</td><td><span class="log-level-${log.level}">${log.level.toUpperCase()}</span></td><td>${log.user} / ${log.ip || 'N/A'}</td><td>${log.action}</td>`;
-            logBody.appendChild(tr);
+        
+        // Clear existing logs and show loading
+        logBody.innerHTML = "<tr><td colspan='4'>Loading logs...</td></tr>";
+        
+        // Fetch real logs from API
+        const token = localStorage.getItem('admin_token');
+        if (!token) {
+            logBody.innerHTML = "<tr><td colspan='4'>Please login as admin to view logs</td></tr>";
+            return;
+        }
+        
+        fetch('/api/admin/logs', { 
+            headers: { 'Authorization': 'Bearer ' + token } 
+        })
+        .then(res => res.json())
+        .then(data => {
+            const logs = data.logs || [];
+            logBody.innerHTML = "";
+            
+            if (logs.length === 0) {
+                logBody.innerHTML = "<tr><td colspan='4'>No network activity logs found. Start monitoring to capture activity.</td></tr>";
+                return;
+            }
+            
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${log.time || 'N/A'}</td>
+                    <td><span class="log-level-${log.level || 'info'}">${(log.level || 'info').toUpperCase()}</span></td>
+                    <td>${log.user || 'Unknown'} / ${log.ip || 'N/A'}</td>
+                    <td>${log.action || 'Unknown activity'}</td>
+                `;
+                logBody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            console.error('Error fetching logs:', err);
+            logBody.innerHTML = "<tr><td colspan='4'>Error loading logs. Please try again.</td></tr>";
         });
     }
     
@@ -429,7 +494,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const body = { roll_no };
             if (password) body.password = password;
             if (activity) body.activity = activity;
-            fetch('http://127.0.0.1:5000/admin/clients', {
+            fetch('/api/admin/clients', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                 body: JSON.stringify(body)
@@ -486,11 +551,44 @@ document.addEventListener("DOMContentLoaded", () => {
             const type = document.getElementById('report-type').value;
             const range = document.getElementById('report-range').value;
             const format = document.getElementById('report-format').value;
-            let reportName = `${range.charAt(0).toUpperCase() + range.slice(1)} ${type} Report`;
             
-            const { headers, data } = generateReportData(type, range);
-            renderReport(reportName, headers, data, format); 
-            addLog('info', 'ADMIN', `Generated report: ${reportName}`);
+            // Show loading state
+            const resultsArea = document.getElementById('report-results-area');
+            if (resultsArea) {
+                resultsArea.innerHTML = '<div class="card"><p>Generating report...</p></div>';
+            }
+            
+            // Fetch real report data from API
+            const token = localStorage.getItem('admin_token');
+            if (!token) {
+                alert('Please login as admin');
+                return;
+            }
+            
+            fetch('/api/admin/reports', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token 
+                },
+                body: JSON.stringify({ type, range })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    resultsArea.innerHTML = `<div class="card"><p>Error: ${data.error}</p></div>`;
+                    return;
+                }
+                const reportName = data.title || `${range} ${type} Report`;
+                renderReport(reportName, data.headers || [], data.data || [], format);
+                addLog('info', 'ADMIN', `Generated report: ${reportName}`);
+            })
+            .catch(err => {
+                console.error('Report error:', err);
+                if (resultsArea) {
+                    resultsArea.innerHTML = '<div class="card"><p>Error generating report. Please try again.</p></div>';
+                }
+            });
         }
     });
     
@@ -550,7 +648,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!token) return alert('Please log in as admin');
         const body = { roll_no };
         if (password) body.password = password;
-        fetch(`http://127.0.0.1:5000/admin/clients/${id}`, {
+        fetch(`/api/admin/clients/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify(body)
@@ -565,14 +663,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const token = localStorage.getItem('admin_token');
         if (!token) return null;
         try {
-            const resOne = await fetch(`http://127.0.0.1:5000/admin/clients/${id}`, { headers: { 'Authorization': 'Bearer ' + token } });
+            const resOne = await fetch(`/api/admin/clients/${id}`, { headers: { 'Authorization': 'Bearer ' + token } });
             if (resOne.ok) {
                 const data = await resOne.json();
                 return data.client || data;
             }
         } catch {}
         try {
-            const res = await fetch('http://127.0.0.1:5000/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } });
+            const res = await fetch('/api/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } });
             if (res.ok) {
                 const { clients } = await res.json();
                 return (clients || []).find(x => String(x._id || x.id) === String(id)) || null;
@@ -601,7 +699,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.toggleBlock = function(id, isBlocked) {
         const token = localStorage.getItem('admin_token');
         if (!token) return alert('Please log in as admin');
-        fetch(`http://127.0.0.1:5000/admin/clients/${id}`, {
+        fetch(`/api/admin/clients/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify({ blocked: !isBlocked })
@@ -651,20 +749,46 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function handleBandwidthChange(selectElement) {
-        const id = parseInt(selectElement.dataset.id);
-        const client = db.clients.find(c => c.id === id);
+        const clientId = selectElement.dataset.id;
         const limit = selectElement.value;
         const customInputSpan = selectElement.closest('.bandwidth-control-cell').querySelector('.custom-bw-group');
+        
         if (limit === 'custom') {
             customInputSpan.classList.remove('hidden');
             const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10);
-            db.bandwidthLimits[id] = customValue;
-            addLog('info', 'ADMIN', `Set bandwidth for ${client.studentId} to ${customValue} Mbps`);
+            saveBandwidthLimit(clientId, customValue);
         } else {
             customInputSpan.classList.add('hidden');
-            db.bandwidthLimits[id] = limit;
-            addLog('info', 'ADMIN', `Set bandwidth for ${client.studentId} to ${limit}`);
+            saveBandwidthLimit(clientId, limit);
         }
+    }
+    
+    // Save bandwidth limit to database
+    function saveBandwidthLimit(clientId, limit) {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please login as admin');
+        
+        fetch(`/api/admin/clients/${clientId}`, {
+            method: 'PATCH',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': 'Bearer ' + token 
+            },
+            body: JSON.stringify({ bandwidth_limit: limit })
+        })
+        .then(res => {
+            if (res.ok) {
+                console.log(`✅ Bandwidth limit saved: ${limit}`);
+                addLog('info', 'ADMIN', `Set bandwidth limit to ${limit}`);
+            } else {
+                console.error('Failed to save bandwidth limit');
+                alert('Failed to save bandwidth limit');
+            }
+        })
+        .catch(err => {
+            console.error('Error saving bandwidth:', err);
+            alert('Error saving bandwidth limit');
+        });
     }
 
     function handleCustomBandwidthInput(inputElement) {
@@ -924,15 +1048,18 @@ document.addEventListener("DOMContentLoaded", () => {
     /**
      * Ensure the clients table exists inside the clients page fragment.
      * Returns the <tbody> element to populate.
+     * Only works on the clients page, returns null for other pages.
      */
     function ensureClientsTableBody() {
         // Try common ids first
         let tbody = document.getElementById('clients-table-body') || document.getElementById('client-list-body');
         if (tbody) return tbody;
 
-        // Find the clients page container in the DOM
+        // Find the clients page container in the DOM - ONLY create on clients page
         const clientsSection = document.getElementById('clients-page') || document.querySelector('.page#clients-page');
-        const container = clientsSection || document.querySelector('.table-container') || document.body;
+        if (!clientsSection) return null;  // Don't create table on non-clients pages
+        
+        const container = clientsSection;
 
         // Create table markup and append
         const wrapper = document.createElement('div');
@@ -971,7 +1098,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         try {
-            const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+            const res = await fetch('/api/admin/clients', {
                 headers: { 'Authorization': 'Bearer ' + token }
             });
             if (!res.ok) return console.error('Failed to fetch clients', res.status);
@@ -1016,9 +1143,9 @@ async function fetchAndApplyAdminData() {
 
     try {
         const [statsRes, clientsRes, logsRes] = await Promise.all([
-            fetch("http://127.0.0.1:5000/admin/stats", { headers }),
-            fetch("http://127.0.0.1:5000/admin/clients", { headers }),
-            fetch("http://127.0.0.1:5000/admin/logs", { headers })
+            fetch("/api/admin/stats", { headers }),
+            fetch("/api/admin/clients", { headers }),
+            fetch("/api/admin/logs", { headers })
         ]);
 
         if (statsRes.ok) {

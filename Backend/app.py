@@ -1,110 +1,139 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort, send_from_directory
 from flask_cors import CORS
-from pymongo import MongoClient
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
-import datetime
+import os
+import socket
 
-# ✅ Import admin routes
+# ✅ Import DB collections (ONLY from db.py)
+from db import users_collection, admins_collection, sessions_collection
+
+# ✅ Import Blueprints
 from admin_routes import admin_routes
+from auth_routes import auth_routes
 
+# --------------------------------------------------
+# ✅ APP CONFIG
+# --------------------------------------------------
 app = Flask(__name__)
 CORS(app)
 
-app.config['SECRET_KEY'] = "your-secret-key"
+app.config["SECRET_KEY"] = "your-secret-key"
 
-# ✅ MongoDB connection
-client = MongoClient("mongodb://localhost:27017/")
-db = client['studentapp']
-users_collection = db['users']
-admins_collection = db['admins']
-sessions_collection = db['active_sessions']
+# --------------------------------------------------
+# ✅ PATH CONFIG
+# --------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "Frontend")
 
-# ✅ Register admin blueprint (MUST be after Flask app init)
-app.register_blueprint(admin_routes)
+# --------------------------------------------------
+# ✅ REGISTER BLUEPRINTS
+# --------------------------------------------------
+app.register_blueprint(auth_routes, url_prefix="/api/auth")
+app.register_blueprint(admin_routes, url_prefix="/api")  # Routes already have /admin prefix
 
+# --------------------------------------------------
+# ✅ ALLOW ONLY LOCAL NETWORK (Wi-Fi)
+# --------------------------------------------------
+@app.before_request
+def allow_lan_only():
+    ip = request.remote_addr
 
-# ✅ User Signup Route
-@app.route('/signup', methods=['POST'])
-def signup():
-    data = request.get_json()
-    name = data.get('name')
-    roll_no = data.get('roll_no')
-    password = data.get('password')
+    # Allow localhost for testing
+    if ip in ("127.0.0.1", "::1"):
+        return
 
-    if users_collection.find_one({"roll_no": roll_no}):
-        return jsonify({"message": "Roll number already registered"}), 409
+    # Allow private IP ranges only
+    if not (
+        ip.startswith("192.168.") or
+        ip.startswith("10.") or
+        ip.startswith("172.")
+    ):
+        abort(403)
 
-    hashed_password = generate_password_hash(password)
+# --------------------------------------------------
+# ✅ HELPER: GET REAL LAN IP
+# --------------------------------------------------
+def get_local_network_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "127.0.0.1"
 
-    user = {
-        "name": name,
-        "roll_no": roll_no,
-        "password": hashed_password,
-        "role": "student"
-    }
+# --------------------------------------------------
+# ✅ FRONTEND ROUTES
+# --------------------------------------------------
 
-    users_collection.insert_one(user)
-    return jsonify({"message": "User registered successfully"}), 201
-
-
-# ✅ User Login Route
-@app.route('/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    roll_no = data.get('roll_no')
-    password = data.get('password')
-
-    user = users_collection.find_one({"roll_no": roll_no})
-
-    if not user or not check_password_hash(user['password'], password):
-        return jsonify({"message": "Invalid credentials"}), 401
-
-    # ✅ Get client IP address
-    client_ip = request.remote_addr
-    
-    # ✅ Create/update session with IP mapping
-    sessions_collection = db['active_sessions']
-    sessions_collection.update_one(
-        {"roll_no": roll_no},
-        {"$set": {
-            "roll_no": roll_no,
-            "client_ip": client_ip,
-            "login_time": datetime.datetime.utcnow(),
-            "status": "active"
-        }},
-        upsert=True
+# 🔹 Login page
+@app.route("/")
+def login_page():
+    return send_from_directory(
+        os.path.join(FRONTEND_DIR, "Login"),
+        "index.html"
     )
-    print(f"✅ Session created: {roll_no} -> {client_ip}")
 
-    token = jwt.encode({
-        "roll_no": roll_no,
-        "role": user["role"],
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
-    }, app.config['SECRET_KEY'], algorithm="HS256")
+# 🔹 Home page
+@app.route("/home")
+def home_page():
+    return send_from_directory(
+        os.path.join(FRONTEND_DIR, "Login"),
+        "home.html"
+    )
 
-    return jsonify({"message": "Login successful", "token": token})
+# 🔹 Admin login page
+@app.route("/admin/login")
+def admin_login_page():
+    return send_from_directory(
+        os.path.join(FRONTEND_DIR, "Final Admin"),
+        "admin_login.html"
+    )
 
+# 🔹 Admin dashboard page
+@app.route("/admin")
+def admin_page():
+    return send_from_directory(
+        os.path.join(FRONTEND_DIR, "Final Admin"),
+        "admin.html"
+    )
 
-# ✅ User Logout Route
-@app.route('/logout', methods=['POST'])
-def logout():
-    data = request.get_json()
-    roll_no = data.get('roll_no')
-    
-    if roll_no:
-        sessions_collection = db['active_sessions']
-        sessions_collection.delete_one({"roll_no": roll_no})
-        print(f"✅ Session deleted: {roll_no}")
-        return jsonify({"message": "Logout successful"}), 200
-    
-    return jsonify({"message": "Roll number required"}), 400
+# --------------------------------------------------
+# ✅ STATIC FILES (CSS / JS / IMAGES)
+# --------------------------------------------------
 
-# ✅ Root Test Route
-@app.route('/')
-def home():
-    return jsonify({"message": "Backend is running ✅"})
+# 🔹 Serve Login folder files (style.css, script.js, images)
+@app.route("/Login/<path:filename>")
+def serve_login_files(filename):
+    return send_from_directory(os.path.join(FRONTEND_DIR, "Login"), filename)
 
+# 🔹 Serve Final Admin folder files (admin.css, admin.js, images)
+@app.route("/Final Admin/<path:filename>")
+def serve_admin_files(filename):
+    return send_from_directory(os.path.join(FRONTEND_DIR, "Final Admin"), filename)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# 🔹 Serve admin panel page templates
+@app.route("/pages/<path:filename>")
+def serve_admin_pages(filename):
+    return send_from_directory(os.path.join(FRONTEND_DIR, "Final Admin", "pages"), filename)
+
+# 🔹 Generic static route (backup)
+@app.route("/static/<path:filename>")
+def serve_static_files(filename):
+    return send_from_directory(FRONTEND_DIR, filename)
+
+# --------------------------------------------------
+# ✅ API STATUS CHECK
+# --------------------------------------------------
+@app.route("/api/status")
+def api_status():
+    return jsonify({
+        "message": "Backend running on LAN ✅",
+        "server_ip": get_local_network_ip()
+    })
+
+# --------------------------------------------------
+# ✅ RUN SERVER (LAN HOSTING)
+# --------------------------------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

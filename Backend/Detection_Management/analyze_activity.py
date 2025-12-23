@@ -24,6 +24,10 @@ def analyze_rows(rows):
 
                 # ✅ Lookup actual roll_no from IP address via active sessions
                 roll_no = get_roll_no_from_ip(client_ip)
+                
+                # ✅ Skip if user is not logged in (no active session)
+                if roll_no is None:
+                    continue  # User not logged in, don't log detection
 
                 # ✅ Create unique key to avoid duplicate entries in same batch
                 activity_key = (roll_no, domain)
@@ -35,7 +39,7 @@ def analyze_rows(rows):
                 category = classify(domain)
 
                 detections.append({
-                    "roll_no": roll_no,  # ✅ Now uses actual student roll number
+                    "roll_no": roll_no,  # ✅ Uses actual student roll number
                     "client_ip": client_ip,
                     "domain": domain,
                     "app_name": app_name,
@@ -51,9 +55,9 @@ def analyze_rows(rows):
 
         if detections:
             save_detections_batch(detections)
-            print(f"✅ Processed {len(rows)} packets, saved {len(detections)} unique detections")
+            print(f"✅ Processed {len(rows)} packets, saved {len(detections)} detections for logged-in users")
         else:
-            print("⚠️ No valid detections to analyze")
+            print("ℹ️ No detections for logged-in users in this batch")
 
     except Exception as e:
         print(f"❌ Error in analyze_rows: {e}")

@@ -43,7 +43,7 @@ async function loadClientsData() {
     }
 
     try {
-        const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+        const res = await fetch('/api/admin/clients', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         console.log('Fetch response:', res.status);
@@ -100,7 +100,7 @@ async function toggleBlock(clientId, isBlocked) {
     if (!token) return alert('Please log in as admin');
 
     try {
-        const res = await fetch(`http://127.0.0.1:5000/admin/clients/${clientId}`, {
+        const res = await fetch(`/api/admin/clients/${clientId}`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -137,7 +137,7 @@ document.getElementById('add-client-form')?.addEventListener('submit', async (e)
     if (!token) return alert('Please log in as admin');
 
     try {
-        const res = await fetch('http://127.0.0.1:5000/admin/clients', {
+        const res = await fetch('/api/admin/clients', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

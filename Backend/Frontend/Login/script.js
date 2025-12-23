@@ -8,7 +8,8 @@ function loginUser() {
         return;
     }
 
-    fetch("http://127.0.0.1:5000/login", {
+    // ✅ Use relative URL for LAN compatibility
+    fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roll_no, password })
@@ -23,9 +24,9 @@ function loginUser() {
             localStorage.setItem("roll_no", roll_no);
 
             // ✅ Redirect after login success
-            window.location.href = "home.html";
+            window.location.href = "/home";
         } else {
-            document.getElementById("error").innerText = "Invalid credentials";
+            document.getElementById("error").innerText = data.msg || "Invalid credentials";
         }
     })
     .catch(err => {
@@ -34,26 +35,34 @@ function loginUser() {
     });
 }
 
-// ✅ Logout function (use in future)
+// ✅ Logout function
 function logoutUser() {
     const roll_no = localStorage.getItem("roll_no");
     
-    // ✅ Call backend to delete session
+    // Clear local storage first
+    localStorage.removeItem("token");
+    localStorage.removeItem("roll_no");
+    
+    // ✅ Call backend to delete session, then redirect
     if (roll_no) {
-        fetch("http://127.0.0.1:5000/logout", {
+        fetch("/api/auth/logout", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ roll_no })
         })
         .then(() => {
             console.log("Session deleted on server");
+            // Redirect to login page
+            window.location.replace(window.location.origin + "/");
         })
         .catch(err => {
             console.error("Logout error:", err);
+            // Redirect anyway even if logout fails
+            window.location.replace(window.location.origin + "/");
         });
+    } else {
+        // No roll_no, just redirect
+        window.location.replace(window.location.origin + "/");
     }
-    
-    localStorage.removeItem("token");
-    localStorage.removeItem("roll_no");
-    window.location.href = "index.html";
 }
+

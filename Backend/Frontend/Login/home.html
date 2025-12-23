@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Welcome</title>
-    <link rel="stylesheet" href="style.css">
+   <link rel="stylesheet" href="Login/style.css">
     <style>
         .success-box {
             background: #fff;
@@ -64,7 +64,8 @@
 
     <div class="success-box">
         <!-- ✅ LOGO INSIDE CARD AND CENTERED -->
-        <img src="./public/vdt-logo.png" class="logo" alt="College Logo">
+        <img src="Login/public/vdt-logo.png
+" class="logo" alt="College Logo">
 
         <p class="welcome-text">
             You are signed in as <b id="rollDisplay">User</b>
@@ -78,29 +79,15 @@
     </div>
 </div>
 
+<script src="Login/script.js"></script>
 <script>
-    document.getElementById("rollDisplay").innerText = localStorage.getItem("roll_no");
-
-    function logoutUser() {
-        const roll_no = localStorage.getItem("roll_no");
-        
-        // ✅ Call backend to delete session
-        if (roll_no) {
-            fetch("http://127.0.0.1:5000/logout", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ roll_no })
-            })
-            .then(() => {
-                console.log("✅ Session deleted on server");
-            })
-            .catch(err => {
-                console.error("❌ Logout error:", err);
-            });
-        }
-        
-        localStorage.clear();
-        window.location.href = "index.html";
+    // Display the logged-in user's roll number
+    const rollNo = localStorage.getItem("roll_no");
+    if (rollNo) {
+        document.getElementById("rollDisplay").innerText = rollNo;
+    } else {
+        // Not logged in, redirect to login
+        window.location.replace(window.location.origin + "/");
     }
 </script>
 

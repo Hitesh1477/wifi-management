@@ -75,7 +75,7 @@
 <body>
 
 <div class="login-box">
-    <img src="./vdt-logo.png" alt="College Logo">
+    <img src="/Final Admin/vdt-logo.png" alt="College Logo">
 
     <h2>Admin Login</h2>
 
@@ -97,7 +97,8 @@ function adminLogin() {
         return;
     }
 
-   fetch("http://127.0.0.1:5000/admin/login", {
+   // ✅ Use relative URL for LAN compatibility
+    fetch("/api/auth/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
@@ -107,18 +108,20 @@ function adminLogin() {
         if (data.token) {
             localStorage.setItem("admin_token", data.token);
             alert("Login Successful ✅");
-            window.location.href = "admin.html";
+            window.location.href = "/admin";
         } else {
-            document.getElementById("error").innerText = "Invalid credentials ❌";
+            document.getElementById("error").innerText = data.message || "Invalid credentials ❌";
         }
     })
-    .catch(() => {
+    .catch((err) => {
+        console.error("Login error:", err);
         document.getElementById("error").innerText = "Server not responding";
     });
 }
 
 function loadDashboardStats() {
-    fetch("http://127.0.0.1:5000/admin/stats", {
+    // ✅ Use relative URL for LAN compatibility
+    fetch("/api/admin/stats", {
         method: "GET",
         headers: {
             "Authorization": "Bearer " + localStorage.getItem("admin_token")

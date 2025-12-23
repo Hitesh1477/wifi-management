@@ -49,5 +49,42 @@ def auto_monitor(interface="Wi-Fi", interval_minutes=1):
         sys.exit(1)
 
 if __name__ == "__main__":
-    auto_monitor("Wi-Fi")
-    auto_monitor("Wi-Fi")
+    # Default to Wi-Fi, or use hotspot adapter for Mobile Hotspot
+    # Usage: python auto_monitor.py [interface]
+    # Examples:
+    #   python auto_monitor.py              -> Uses Wi-Fi
+    #   python auto_monitor.py hotspot      -> Uses Mobile Hotspot (tries multiple names)
+    #   python auto_monitor.py "Local Area Connection* 2"  -> Uses specific interface
+    #   python auto_monitor.py list         -> Lists available interfaces
+    
+    import argparse
+    import subprocess
+    
+    parser = argparse.ArgumentParser(description="Monitor network traffic")
+    parser.add_argument("interface", nargs="?", default="Wi-Fi", 
+                        help="Network interface (default: Wi-Fi, use 'hotspot' for Mobile Hotspot, 'list' to show all)")
+    args = parser.parse_args()
+    
+    interface = args.interface
+    
+    # List interfaces if requested
+    if interface.lower() == "list":
+        print("📋 Available network interfaces:")
+        result = subprocess.run(["tshark", "-D"], capture_output=True, text=True)
+        print(result.stdout)
+        sys.exit(0)
+    
+    # Map "hotspot" to Windows Mobile Hotspot interface
+    # Windows creates virtual adapters named "Local Area Connection* X"
+    if interface.lower() == "hotspot":
+        # Try common hotspot interface names - "Local Area Connection* 2" is most common
+        interface = "Local Area Connection* 2"
+        print(f"📡 Using Mobile Hotspot interface: {interface}")
+        print("💡 If this doesn't work, run: python auto_monitor.py list")
+        print("   Then use the correct interface name directly")
+    else:
+        print(f"📡 Using interface: {interface}")
+    
+    auto_monitor(interface)
+
+
