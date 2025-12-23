@@ -49,11 +49,12 @@ html,body {
 /* Forms */
 .form-row{
   display:grid;
-  grid-template-columns:1fr 1fr 1fr;
+  grid-template-columns:7fr 1fr ;  /*grid-template-columns:10fr 1fr ;*/
   gap:var(--gap);
-  align-items:end;
+  align-items:center;
   margin-bottom:14px;
 }
+
 .form-row:first-child{ grid-template-columns:1fr; }
 .form-row > *:only-child{ grid-column:1 / -1; }
 
@@ -63,7 +64,7 @@ textarea,
 select{
   width:100%;
   padding:12px 14px;
-  border-radius:10px;
+  border-radius:6px;
   border:1px solid var(--border);
   background:#fff;
   font-size:14px;
@@ -261,3 +262,166 @@ input:focus, textarea:focus, select:focus{
 
 /* Hide fragment error cards */
 .page-load-error, .fragment-error{ display:none !important; }
+
+/* --- Reporting Page Styles --- */
+.report-form-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 20x;
+    margin-bottom: 0px;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+/* ===== FIX: All Connected Clients table ONLY ===== */
+
+/* Center all headers and cells */
+.clients-table th,
+.clients-table td {
+  text-align: center !important;
+}
+
+/* Re-balance column widths to remove left gap */
+.clients-table th:nth-child(1),
+.clients-table td:nth-child(1) {
+  width: 16% !important;
+}
+
+.clients-table th:nth-child(2),
+.clients-table td:nth-child(2) {
+  width: 15% !important;
+}
+
+.clients-table th:nth-child(3),
+.clients-table td:nth-child(3) {
+  width: 14% !important;
+}
+
+.clients-table th:nth-child(4),
+.clients-table td:nth-child(4) {
+  width: 20% !important;
+}
+
+.clients-table th:nth-child(5),
+.clients-table td:nth-child(5) {
+  width: 15% !important;
+}
+
+.clients-table th:nth-child(6),
+.clients-table td:nth-child(6) {
+  width: 20% !important;
+}
+
+/* Remove right push from Action column */
+.clients-table td:nth-child(6) {
+  text-align: center !important;
+}
+
+/* Properly center Edit / Block buttons */
+.clients-table .action-buttons {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 10px;
+}
+
+/* Slightly reduce left-right padding to remove extra space */
+.clients-table td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+/* ===== ACTION BUTTONS – POLISHED PILL STYLE ===== */
+
+/* Common style for BOTH buttons */
+.clients-table td:last-child button {
+    border-radius: 8px;  /* pill shape */
+    padding: 8px 18px;            
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+/* EDIT button (first button) */
+.clients-table td:last-child button:first-child {
+    background-color: #495057;   /* dark grey */
+}
+
+.clients-table td:last-child button:first-child:hover {
+    background-color: #343a40;
+    transform: translateY(-1px);
+}
+
+/* BLOCK button (second button) */
+.clients-table td:last-child button:last-child {
+    background-color: #dc3545;   /* red */
+}
+
+.clients-table td:last-child button:last-child:hover {
+    background-color: #b02a37;
+    transform: translateY(-1px);
+}
+
+/* ===== Fix uneven horizontal line in Bandwidth Control table ===== */
+
+/* Ensure all cells align vertically */
+.client-table th,
+.client-table td {
+    vertical-align: middle;
+}
+
+/* Apply border ONLY to rows */
+.client-table tbody tr {
+    border-bottom: 1px solid var(--border);
+}
+
+/* Remove cell-level borders to avoid uneven lines */
+.client-table td {
+    border-bottom: none !important;
+}
+
+/* ===== Center align Bandwidth Control table ONLY ===== */
+
+/* Center all headers and cells */
+#bandwidth-page .client-table th,
+#bandwidth-page .client-table td {
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* Center dropdown inside Bandwidth Profile column */
+#bandwidth-page .client-table select {
+    margin: 0 auto;
+    display: block;
+}
+
+/* Center action button */
+#bandwidth-page .client-table td:last-child {
+    text-align: center;
+}
+
+/* ===== Perfect vertical + horizontal centering for Block button ===== */
+
+#bandwidth-page .client-table td:last-child {
+    display: flex;
+    align-items: center;      /* vertical center */
+    justify-content: center;  /* horizontal center */
+}
+
+/* Ensure button itself doesn’t add extra offset */
+#bandwidth-page .client-table td:last-child button {
+    margin: 0;
+}
+
+/* ===== Fine-tune Block button vertical position (optical centering) ===== */
+
+#bandwidth-page .client-table td:last-child button {
+    position: relative;
+    top: 8px;   /* move button slightly down */
+}
