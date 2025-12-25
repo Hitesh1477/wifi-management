@@ -1,227 +1,207 @@
-Wi-Fi Activity Detection & Monitoring System
-Overview
+📡 Wi-Fi Management System with Anomaly Detection
+📌 Project Overview
 
-This project implements a real-time Wi-Fi activity detection system that monitors devices connected to a network and identifies which application or website is being used.
-Detected activities are stored directly in MongoDB for live dashboard visualization, reporting, and future anomaly detection.
+This project implements a Wi-Fi Management and Monitoring System that captures real-time network traffic, identifies application-level activity, and detects abnormal user behavior using rule-based and machine-learning-ready anomaly detection techniques.
 
-The system does not inspect packet payloads. It relies on DNS queries, TLS SNI, and HTTP host headers, making it privacy-aware while still effective.
+The system is designed for shared Wi-Fi environments such as colleges, hostels, and labs, where administrators need visibility into how the network is actually being used, not just who is connected.
 
-Key Features (Current)
+🎯 Key Objectives
 
-✅ Live Wi-Fi traffic capture using tshark
+Capture real-time Wi-Fi traffic
 
-✅ Identify websites and applications (YouTube, WhatsApp, Google, etc.)
+Identify applications and websites being accessed
 
-✅ Categorize activity (video, messaging, search, general)
+Store structured activity data in MongoDB
 
-✅ Store detections directly in MongoDB
+Detect abnormal usage patterns (misuse, spikes, abuse)
 
-✅ Ready for dashboard integration
+Enable automated enforcement (flagging / auto-ban logic)
 
-✅ Modular and extensible design
+Provide a strong foundation for ML-based anomaly detection
 
-Tech Stack
-Backend
+🧠 System Architecture (High Level)
+Packets
+  ↓
+tshark (capture)
+  ↓
+analyze_activity.py
+  ↓
+MongoDB (detections)
+  ↓
+anomaly_detector.py
+  ↓
+MongoDB (anomalies)
 
-Python 3.10+
-
-Tshark (Wireshark CLI)
-
-MongoDB (NoSQL)
-
-Database
-
-MongoDB Community Server
-
-Database: studentapp
-
-Collection: detections
-
-Project Structure
-Detection_Management/
+🗂️ Project Structure
+Backend/Detection_Management/
 │
-├── auto_monitor.py          # Main entry point (real-time monitoring)
-├── capture.py               # Live packet capture via tshark
-├── analyze_activity.py      # Detection + classification logic
-├── model.py                 # Activity category rules
-├── domain_map.py            # Domain → Application mapping
-├── db_client.py             # MongoDB connection handler
-├── save_detections_batch.py # MongoDB insert logic
-├── README.md
-└── venv/                    # Python virtual environment
+├── capture.py                # Live packet capture using tshark
+├── auto_monitor.py           # Orchestrates capture + processing
+├── analyze_activity.py       # Extracts domain, app, category
+├── domain_map.py             # Maps domains to applications
+├── model.py                  # Category classification logic
+├── save_detections_batch.py  # Batch insert into MongoDB
+├── session_lookup.py         # IP → roll_no mapping
+├── anomaly_detector.py       # Rule-based anomaly detection
+├── check_sessions.py         # Debug active sessions
+├── debug_capture.py          # Debug captured packets
+├── db_client.py              # MongoDB connection
+└── README.md
 
+🛠️ Technologies Used
 
-❌ insight_generator.py and generate_summaries.py are intentionally removed
-❌ No CSV files are generated anymore
+Python 3
 
-Prerequisites
-System Requirements
+tshark / Wireshark
 
-Windows 10 / 11
+MongoDB
 
-Administrator access
+PyMongo
 
-Required Software
+Scikit-learn (for future ML extension)
 
-Python 3.10+
+Windows / PowerShell environment
 
-Wireshark (with Tshark)
+📊 Data Storage Design
+studentapp.detections
 
-MongoDB Community Server
-
-Git
-
-Installation & Setup
-1. Clone Repository
-git clone <REPO_URL>
-cd wifi-management/Backend/Detection_Management
-
-2. Create Virtual Environment
-python -m venv venv
-venv\Scripts\activate
-
-3. Install Dependencies
-pip install pymongo pandas
-
-4. Install & Verify Tshark
-tshark --version
-
-
-If not found:
-
-Ensure Wireshark is installed
-
-Ensure Tshark is added to PATH
-
-5. Install & Start MongoDB
-net start MongoDB
-
-
-Verify:
-
-mongosh
-
-Database Configuration
-
-MongoDB is used directly — no CSV or intermediate files.
-
-Database: studentapp
-Collection: detections
-
-Example stored document:
+Stores per-event activity:
 
 {
-  "client_ip": "10.62.156.23",
+  "roll_no": "101",
+  "client_ip": "192.168.137.1",
   "domain": "www.youtube.com",
   "app_name": "YouTube",
   "category": "video",
-  "timestamp": ISODate("2025-12-12T19:41:32Z"),
-  "reason": "video activity",
-  "score": 1,
-  "details": "domain=www.youtube.com"
+  "timestamp": "UTC time"
 }
 
-Running the Project
-1. Identify Network Interface
-tshark -D
+studentapp.anomalies
 
+Stores detected abnormal behavior:
 
-Note the interface name (example: Wi-Fi).
+{
+  "roll_no": "101",
+  "client_ip": "192.168.137.1",
+  "type": "EXCESSIVE_APP_USAGE",
+  "app_name": "YouTube",
+  "count": 42,
+  "window_minutes": 5,
+  "window_start": "UTC time",
+  "severity": "medium",
+  "detected_by": "rule",
+  "auto_ban": false,
+  "timestamp": "UTC time"
+}
 
-2. Start Real-Time Monitoring
+🚨 Anomaly Detection Logic
+Detection Window
+
+5-minute sliding window
+
+Per-user (roll_no) behavior analysis
+
+Implemented Rules
+
+Excessive App Usage
+
+Same app used too frequently in a short window
+
+Category Abuse
+
+Video + Social traffic dominates total activity
+
+Traffic Spike
+
+Sudden surge compared to previous time window
+
+Intelligent Filtering
+
+System / carrier / VoWiFi traffic excluded
+
+Background multicast traffic ignored
+
+Only user-driven application activity analyzed
+
+🔒 Auto-Ban Logic
+
+If a user triggers multiple anomalies within 30 minutes
+
+auto_ban flag is set in the anomalies collection
+
+No direct blocking implemented (safe for academic use)
+
+▶️ How to Run the Project
+1️⃣ Start MongoDB
+mongod
+
+2️⃣ Insert Active Session (for testing)
+use studentapp
+db.active_sessions.insertOne({
+  roll_no: "101",
+  client_ip: "192.168.137.1",
+  status: "active",
+  login_time: new Date()
+})
+
+3️⃣ Start Monitoring
 python auto_monitor.py
 
+4️⃣ Generate Network Traffic
 
-Output example:
+Use YouTube / Instagram / browsing
 
-🚀 Real-time monitoring started...
-✔ Stored -> YouTube activity
-✔ Stored -> WhatsApp activity
-✔ Stored -> Google Search activity
+5️⃣ Run Anomaly Detection
+python anomaly_detector.py
 
+6️⃣ Verify Output
+db.anomalies.find().pretty()
 
-Stop anytime:
+🤖 Machine Learning Extension (Implemented / Planned)
+Implemented
 
-CTRL + C
+Rule-based anomaly detection (baseline)
 
-Viewing Data in MongoDB
-mongosh
-use studentapp
-db.detections.find().pretty()
+ML-Ready
 
-How Detection Works (High Level)
+Isolation Forest (selected model)
 
-capture.py
+Features derived from 5-minute aggregates
 
-Uses Tshark to stream DNS / TLS / HTTP metadata
+Unsupervised learning (no labeled data required)
 
-analyze_activity.py
+Referenced Models (Survey)
 
-Extracts domain names
+Isolation Forest
 
-Maps domain → app name
+Local Outlier Factor (LOF)
 
-Classifies category
+One-Class SVM
 
-Creates detection objects
+🔮 Future Scope
 
-save_detections_batch.py
+Full Isolation Forest integration
 
-Inserts detections directly into MongoDB
+Real-time anomaly detection
 
-auto_monitor.py
+Dashboard visualization
 
-Orchestrates live capture + analysis loop
+Predictive traffic modeling
 
-What Is Completed
+Temporal deep-learning models (LSTM, Autoencoders)
 
-✔ Real-time monitoring
+Integration with firewall / access control
 
-✔ App / website identification
+🎓 Academic Relevance
 
-✔ MongoDB integration
+Strong capstone-level system
 
-✔ Dashboard-ready backend
+Explainable, non-black-box logic
 
-✔ Clean modular architecture
+Privacy-preserving (no payload inspection)
 
-What Is Pending / Future Scope
+Suitable for AI / ML / Cybersecurity domains
 
-⏳ Anomaly detection (ML-based)
+📌 One-Line Summary
 
-⏳ Automatic user banning
-
-⏳ Risk scoring per device
-
-⏳ Time-window aggregation
-
-⏳ Predictive traffic analysis
-
-⏳ Admin-defined policy rules
-
-Privacy Considerations
-
-No payload inspection
-
-No content logging
-
-Only metadata (DNS, SNI, hostnames)
-
-Designed for educational & administrative use
-
-Notes for Evaluators / Mentors
-
-This is rule-based detection, not ML yet
-
-Architecture is ML-ready
-
-MongoDB schema supports real-time dashboards
-
-Scalable for campus / enterprise networks
-
-Author
-
-Capstone Project
-Wi-Fi Management & Activity Detection System
-Backend: Python + MongoDB
-Frontend: React (handled separately)
+A real-time Wi-Fi monitoring system that identifies application-level usage and detects abnormal user behavior using rule-based and machine-learning-ready anomaly detection.
