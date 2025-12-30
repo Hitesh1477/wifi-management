@@ -1,50 +1,67 @@
-📡 Wi-Fi Management System with Anomaly Detection
+📡 Wi-Fi Management System with Real-Time Anomaly Detection & Blocking
 📌 Project Overview
 
-This project implements a Wi-Fi Management and Monitoring System that captures real-time network traffic, identifies application-level activity, and detects abnormal user behavior using rule-based and machine-learning-ready anomaly detection techniques.
+This project implements a real-time Wi-Fi monitoring and anomaly detection system designed for shared networks such as colleges, hostels, and labs.
 
-The system is designed for shared Wi-Fi environments such as colleges, hostels, and labs, where administrators need visibility into how the network is actually being used, not just who is connected.
+The system captures live network traffic, identifies applications being used, detects abnormal user behavior using rule-based logic and machine learning, and blocks users in real time when suspicious activity is confirmed.
 
-🎯 Key Objectives
+The design focuses on:
 
-Capture real-time Wi-Fi traffic
+Explainability
 
-Identify applications and websites being accessed
+Privacy (no payload inspection)
+
+Real-time response
+
+Academic and industry relevance
+
+🎯 Objectives
+
+Monitor live Wi-Fi traffic
+
+Identify applications and traffic categories
 
 Store structured activity data in MongoDB
 
-Detect abnormal usage patterns (misuse, spikes, abuse)
+Detect abnormal behavior using rules
 
-Enable automated enforcement (flagging / auto-ban logic)
+Confirm anomalies using machine learning
 
-Provide a strong foundation for ML-based anomaly detection
+Block users automatically in real time
 
-🧠 System Architecture (High Level)
-Packets
-  ↓
-tshark (capture)
-  ↓
-analyze_activity.py
-  ↓
+Avoid false positives using safe decision logic
+
+🧠 High-Level System Flow
+Live Network Traffic
+        ↓
+Packet Capture (tshark)
+        ↓
+App & Category Detection
+        ↓
 MongoDB (detections)
-  ↓
-anomaly_detector.py
-  ↓
-MongoDB (anomalies)
+        ↓
+Rule-Based Anomaly Detection
+        ↓
+ML Confirmation (Isolation Forest)
+        ↓
+Decision Engine
+        ↓
+Real-Time User Blocking
 
 🗂️ Project Structure
 Backend/Detection_Management/
 │
-├── capture.py                # Live packet capture using tshark
-├── auto_monitor.py           # Orchestrates capture + processing
-├── analyze_activity.py       # Extracts domain, app, category
-├── domain_map.py             # Maps domains to applications
-├── model.py                  # Category classification logic
-├── save_detections_batch.py  # Batch insert into MongoDB
+├── capture.py                # Live packet capture (tshark)
+├── auto_monitor.py           # Real-time monitoring & decision loop
+├── analyze_activity.py       # Packet → app & category mapping
+├── domain_map.py             # Domain → application mapping
+├── model.py                  # Traffic category classification
+├── save_detections_batch.py  # MongoDB batch inserts
 ├── session_lookup.py         # IP → roll_no mapping
 ├── anomaly_detector.py       # Rule-based anomaly detection
-├── check_sessions.py         # Debug active sessions
-├── debug_capture.py          # Debug captured packets
+├── realtime_ml.py            # Real-time ML (Isolation Forest)
+├── decision_engine.py        # Rule + ML decision logic
+├── block_user.py             # Real-time user blocking
 ├── db_client.py              # MongoDB connection
 └── README.md
 
@@ -58,14 +75,16 @@ MongoDB
 
 PyMongo
 
-Scikit-learn (for future ML extension)
+Scikit-learn
 
-Windows / PowerShell environment
+NumPy
 
-📊 Data Storage Design
+Windows / PowerShell
+
+📊 Database Design
 studentapp.detections
 
-Stores per-event activity:
+Stores per-event user activity.
 
 {
   "roll_no": "101",
@@ -78,64 +97,74 @@ Stores per-event activity:
 
 studentapp.anomalies
 
-Stores detected abnormal behavior:
+Stores detected anomalies (rule-based and ML).
 
 {
   "roll_no": "101",
-  "client_ip": "192.168.137.1",
   "type": "EXCESSIVE_APP_USAGE",
-  "app_name": "YouTube",
-  "count": 42,
-  "window_minutes": 5,
-  "window_start": "UTC time",
-  "severity": "medium",
   "detected_by": "rule",
-  "auto_ban": false,
+  "severity": "medium",
   "timestamp": "UTC time"
 }
 
+studentapp.blocked_users
+
+Stores real-time blocked users.
+
+{
+  "roll_no": "101",
+  "reason": "Real-time anomaly detected (Rule + ML)",
+  "blocked_at": "UTC time",
+  "status": "blocked"
+}
+
 🚨 Anomaly Detection Logic
-Detection Window
+Rule-Based Detection
 
-5-minute sliding window
+Excessive application usage
 
-Per-user (roll_no) behavior analysis
+High video/social media dominance
 
-Implemented Rules
+Sudden traffic spikes
 
-Excessive App Usage
+Rules provide fast and explainable detection.
 
-Same app used too frequently in a short window
+Machine Learning (Isolation Forest)
 
-Category Abuse
+Uses aggregated behavior features
 
-Video + Social traffic dominates total activity
+Learns normal usage patterns
 
-Traffic Spike
+Flags unusual behavior automatically
 
-Sudden surge compared to previous time window
+Works without labeled data
 
-Intelligent Filtering
+ML is used as a confirmation layer, not alone.
 
-System / carrier / VoWiFi traffic excluded
+🔐 Real-Time Blocking Logic
 
-Background multicast traffic ignored
+A user is blocked only when:
 
-Only user-driven application activity analyzed
+Rule-based anomaly detected
+AND
+ML model confirms abnormal behavior
 
-🔒 Auto-Ban Logic
 
-If a user triggers multiple anomalies within 30 minutes
+This ensures:
 
-auto_ban flag is set in the anomalies collection
+High accuracy
 
-No direct blocking implemented (safe for academic use)
+Fewer false positives
+
+Safe real-time enforcement
+
+Blocking is implemented at the database level, making it safe for academic environments.
 
 ▶️ How to Run the Project
 1️⃣ Start MongoDB
 mongod
 
-2️⃣ Insert Active Session (for testing)
+2️⃣ Insert Active User Session (Testing)
 use studentapp
 db.active_sessions.insertOne({
   roll_no: "101",
@@ -144,64 +173,56 @@ db.active_sessions.insertOne({
   login_time: new Date()
 })
 
-3️⃣ Start Monitoring
+3️⃣ Start Real-Time Monitoring
 python auto_monitor.py
 
-4️⃣ Generate Network Traffic
+4️⃣ Generate Traffic
 
-Use YouTube / Instagram / browsing
+YouTube
 
-5️⃣ Run Anomaly Detection
-python anomaly_detector.py
+Instagram
 
-6️⃣ Verify Output
+Google search
+
+5️⃣ Verify Outputs
+db.detections.find().pretty()
 db.anomalies.find().pretty()
+db.blocked_users.find().pretty()
 
-🤖 Machine Learning Extension (Implemented / Planned)
-Implemented
-
-Rule-based anomaly detection (baseline)
-
-ML-Ready
-
-Isolation Forest (selected model)
-
-Features derived from 5-minute aggregates
-
-Unsupervised learning (no labeled data required)
-
-Referenced Models (Survey)
-
-Isolation Forest
-
-Local Outlier Factor (LOF)
-
-One-Class SVM
-
+✅ Testing Summary
+Component	Status
+Packet capture	✅ Working
+App detection	✅ Accurate
+MongoDB storage	✅ Verified
+Rule detection	✅ Triggered
+ML confirmation	✅ Working
+Real-time blocking	✅ Successful
 🔮 Future Scope
 
-Full Isolation Forest integration
-
-Real-time anomaly detection
+Firewall-level network blocking
 
 Dashboard visualization
 
-Predictive traffic modeling
+Long-term behavior profiling
 
-Temporal deep-learning models (LSTM, Autoencoders)
+Advanced ML models (Autoencoders, LSTM)
 
-Integration with firewall / access control
+Automated unblock policies
 
-🎓 Academic Relevance
+Admin alert system
 
-Strong capstone-level system
+🎓 Academic Significance
 
-Explainable, non-black-box logic
+Real-time intelligent system
 
-Privacy-preserving (no payload inspection)
+Explainable AI approach
 
-Suitable for AI / ML / Cybersecurity domains
+Privacy-preserving design
+
+Suitable for AI / ML / Cybersecurity projects
+
+Strong capstone and viva-ready implementation
 
 📌 One-Line Summary
 
-A real-time Wi-Fi monitoring system that identifies application-level usage and detects abnormal user behavior using rule-based and machine-learning-ready anomaly detection.
+A real-time Wi-Fi monitoring system that detects abnormal user behavior using rules and machine learning and blocks users automatically with high confidence.
