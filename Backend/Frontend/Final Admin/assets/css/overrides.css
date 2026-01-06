@@ -49,7 +49,7 @@ html,body {
 /* Forms */
 .form-row{
   display:grid;
-  grid-template-columns:7fr 1fr ;  /*grid-template-columns:10fr 1fr ;*/
+  grid-template-columns:7fr 1fr;
   gap:var(--gap);
   align-items:center;
   margin-bottom:14px;
@@ -58,8 +58,17 @@ html,body {
 .form-row:first-child{ grid-template-columns:1fr; }
 .form-row > *:only-child{ grid-column:1 / -1; }
 
+/* Button Group for Add Client + CSV Upload */
+.button-group {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+
 input[type="text"],
 input[type="search"],
+input[type="password"],
 textarea,
 select{
   width:100%;
@@ -102,11 +111,28 @@ input:focus, textarea:focus, select:focus{
 .btn:active{ transform:translateY(-1px) scale(.997); }
 .btn:focus-visible{ outline:3px solid rgba(11,111,168,0.25); outline-offset:2px; }
 
+/* CSV Button Variant */
+.btn-csv {
+  background: #28a745;
+}
+.btn-csv:hover {
+  background: #218838;
+}
+
 /* Variants */
 .btn-edit{ background:#495057; padding:8px 12px; box-shadow:none; }
 .btn-edit:hover{ background:#343a40; }
 .btn-block{ background:var(--danger); padding:8px 12px; }
 .btn-unblock{ background:var(--success); padding:8px 12px; }
+.btn-cancel{ background:#6c757d; }
+.btn-cancel:hover{ background:#545b62; }
+.btn-upload{ background:#007bff; }
+.btn-upload:hover{ background:#0056b3; }
+.btn-upload:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+}
 
 /* Table container + header */
 .table-container{
@@ -232,6 +258,8 @@ input:focus, textarea:focus, select:focus{
 @media (max-width:768px){
   .card{ padding:18px; }
   .form-row{ grid-template-columns:1fr; gap:12px; }
+  .button-group { flex-direction: column; width: 100%; }
+  .button-group .btn { width: 100%; }
   .clients-table, .clients-table tbody, .clients-table tr, .clients-table td, .clients-table th{ display:block; width:100%; }
   .clients-table thead{ display:none; }
   .clients-table tr{
@@ -267,7 +295,7 @@ input:focus, textarea:focus, select:focus{
 .report-form-grid {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr;
-    gap: 20x;
+    gap: 20px;
     margin-bottom: 0px;
 }
 
@@ -338,8 +366,8 @@ input:focus, textarea:focus, select:focus{
 
 /* Common style for BOTH buttons */
 .clients-table td:last-child button {
-    border-radius: 8px;  /* pill shape */
-    padding: 8px 18px;            
+    border-radius: 8px;
+    padding: 8px 18px;
     font-size: 13px;
     font-weight: 600;
     color: #ffffff;
@@ -350,7 +378,7 @@ input:focus, textarea:focus, select:focus{
 
 /* EDIT button (first button) */
 .clients-table td:last-child button:first-child {
-    background-color: #495057;   /* dark grey */
+    background-color: #495057;
 }
 
 .clients-table td:last-child button:first-child:hover {
@@ -360,7 +388,7 @@ input:focus, textarea:focus, select:focus{
 
 /* BLOCK button (second button) */
 .clients-table td:last-child button:last-child {
-    background-color: #dc3545;   /* red */
+    background-color: #dc3545;
 }
 
 .clients-table td:last-child button:last-child:hover {
@@ -410,11 +438,11 @@ input:focus, textarea:focus, select:focus{
 
 #bandwidth-page .client-table td:last-child {
     display: flex;
-    align-items: center;      /* vertical center */
-    justify-content: center;  /* horizontal center */
+    align-items: center;
+    justify-content: center;
 }
 
-/* Ensure button itself doesn’t add extra offset */
+/* Ensure button itself doesn't add extra offset */
 #bandwidth-page .client-table td:last-child button {
     margin: 0;
 }
@@ -423,5 +451,383 @@ input:focus, textarea:focus, select:focus{
 
 #bandwidth-page .client-table td:last-child button {
     position: relative;
-    top: 8px;   /* move button slightly down */
+    top: 8px;
 }
+
+/* ==================== CSV UPLOAD MODAL ==================== */
+#csv-modal {    
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 110px;
+    animation: fadeIn 0.2s ease;
+    
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-box {
+    background: #fff;
+    width: 90%;
+    max-width: 620px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    animation: slideUp 0.25s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    padding: 18px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e0e0e0;
+    background: #fff;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+.close-btn {
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: #999;
+    transition: color 0.2s;
+    border: none;
+    background: none;
+    padding: 0;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-btn:hover {
+    color: #333;
+}
+
+.modal-body {
+    padding: 24px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    border-top: 1px solid #e0e0e0;
+    background: #fafafa;
+    flex-shrink: 0; 
+}
+
+/* CSV Format Requirements Box  */
+.csv-format-box {
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border-left: 4px solid #1976d2;
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+
+.format-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0d47a1;
+    margin-bottom: 12px;
+}
+
+.format-detail {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    flex-wrap: wrap;
+}
+
+.detail-label {
+    color: #1565c0;
+    font-weight: 500;
+}
+
+.detail-value {
+    color: #d32f2f;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+}
+
+.detail-text {
+    color: #1565c0;
+}
+
+.template-download-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #1976d2;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 8px;
+    transition: color 0.2s;
+}
+
+.template-download-link:hover {
+    color: #0d47a1;
+    text-decoration: underline;
+}
+
+/* CSV Format Text (Image 1 Style) */
+.csv-format-text {
+    font-size: 14px;
+    color: #555;
+    margin-bottom: 12px;
+}
+
+.csv-format-text strong {
+    color: #333;
+    font-weight: 600;
+}
+
+/* Example Data Box */
+.example-data-box {
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #333;
+    line-height: 1.7;
+    margin-bottom: 20px;
+}
+
+/* Drag & Drop Zone (Image 1 Style) */
+.drag-drop-zone {
+    border: 2px dashed #1976d2;
+    border-radius: 6px;
+    padding: 40px 24px;
+    text-align: center;
+    background: #e3f2fd;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.drag-drop-zone:hover {
+    background: #bbdefb;
+    border-color: #1565c0;
+}
+
+.drag-drop-zone.dragover {
+    background: #90caf9;
+    border-color: #0d47a1;
+    box-shadow: 0 4px 12px rgba(25, 118, 210, 0.2);
+}
+
+.cloud-upload-icon {
+    margin: 0 auto 14px;
+}
+
+.cloud-upload-icon svg {
+    display: block;
+    margin: 0 auto;
+}
+
+.drag-text {
+    margin: 0 0 8px 0;
+    color: #424242;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.or-text {
+    margin: 10px 0;
+    color: #757575;
+    font-size: 14px;
+}
+
+.browse-files-btn {
+    background: #1976d2;
+    color: #fff;
+    padding: 10px 28px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.browse-files-btn:hover {
+    background: #1565c0;
+}
+
+.selected-file-name {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #2e7d32;
+    font-weight: 600;
+    min-height: 20px;
+}
+
+.selected-file-name:not(:empty) {
+    padding: 10px 16px;
+    background: #e8f5e9;
+    border-radius: 4px;
+    display: inline-block;
+    border: 1px solid #a5d6a7;
+}
+
+/* Loading State */
+.upload-loading-state {
+    text-align: center;
+    padding: 32px 20px;
+    background: #fafafa;
+    border-radius: 6px;
+    margin-top: 20px;
+}
+
+.spinner-loader {
+    border: 3px solid #e0e0e0;
+    border-top: 3px solid #1976d2;
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-main-text {
+    color: #333;
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 6px 0;
+}
+
+.loading-sub-text {
+    color: #666;
+    font-size: 13px;
+    margin: 0;
+}
+
+/* Upload Result */
+.upload-result {
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin-top: 20px;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-line;
+    border: 1px solid;
+}
+
+.upload-result.success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-color: #a5d6a7;
+}
+
+.upload-result.error {
+    background: #ffebee;
+    color: #c62828;
+    border-color: #ef9a9a;
+}
+
+/* Footer Buttons */
+.footer-btn {
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.btn-cancel-modal {
+    background: #757575;
+    color: #fff;
+}
+
+.btn-cancel-modal:hover {
+    background: #616161;
+}
+
+.btn-upload-modal {
+    background: #bdbdbd;
+    color: #fff;
+    cursor: not-allowed;
+}
+
+.btn-upload-modal:not(:disabled) {
+    background: #1976d2;
+    cursor: pointer;
+}
+
+.btn-upload-modal:not(:disabled):hover {
+    background: #1565c0;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .modal-box {
+        width: 95%;
+        margin: 12px;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .drag-drop-zone {
+        padding: 32px 20px;
+    }
+    
+    .format-detail {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .modal-footer {
+        flex-direction: column-reverse;
+    }
+    
+    .footer-btn {
+        width: 100%;
+    }
+}
+

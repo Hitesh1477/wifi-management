@@ -1,9 +1,13 @@
+ #pip install pandas openpyxl xlrd
+
 from flask import Blueprint, request, jsonify, current_app as app
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from pymongo import MongoClient
 import jwt, datetime
 from bson.objectid import ObjectId
+import pandas as pd
+import io
 
 # ✅ MongoDB
 client = MongoClient("mongodb://localhost:27017/")
@@ -351,3 +355,81 @@ def admin_reports():
     except Exception as e:
         print(f"Error generating report: {e}")
         return jsonify({"error": str(e), "headers": [], "data": []}), 500
+
+@admin_routes.route('/admin/bulk-upload', methods=['POST'])
+@admin_required
+def bulk_upload_clients():
+    """Bulk upload students via CSV/Excel file"""
+    try:
+        # Check if file is present
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith(('.csv', '.xlsx', '.xls')):
+            return jsonify({'error': 'Invalid file format. Please upload CSV or Excel file'}), 400
+        
+        # Read file
+        try:
+            if file.filename.endswith('.csv'):
+                df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
+            else:
+                df = pd.read_excel(file)
+        except Exception as e:
+            return jsonify({'error': f'Failed to read file: {str(e)}'}), 400
+        
+        # Validate columns
+        required_columns = ['roll_number', 'password']
+        if not all(col in df.columns for col in required_columns):
+            return jsonify({'error': f'CSV must contain columns: {", ".join(required_columns)}'}), 400
+        
+        # Remove NaN values
+        df = df.dropna(subset=required_columns)
+        
+        added_count = 0
+        skipped_count = 0
+        errors = []
+        
+        # Process each row
+        for index, row in df.iterrows():
+            roll_no = str(row['roll_number']).strip()
+            password = str(row['password']).strip()
+            
+            if not roll_no or not password:
+                skipped_count += 1
+                errors.append(f'Row {index + 2}: Missing data')
+                continue
+            
+            # Check if student exists
+            if users_collection.find_one({'roll_no': roll_no}):
+                skipped_count += 1
+                errors.append(f'Student {roll_no} already exists')
+                continue
+            
+            # Insert new student (using same structure as existing add_client route)
+            doc = {
+                'roll_no': roll_no,
+                'password': generate_password_hash(password),
+                'role': 'student',
+                'blocked': False,
+                'activity': 'Idle',
+            }
+            
+            users_collection.insert_one(doc)
+            added_count += 1
+        
+        return jsonify({
+            'message': 'Bulk upload completed',
+            'added': added_count,
+            'skipped': skipped_count,
+            'errors': errors[:10]
+        }), 200
+        
+    except Exception as e:
+        print(f"Bulk upload error: {e}")
+        return jsonify({'error': str(e)}), 500

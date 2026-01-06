@@ -6,7 +6,10 @@
                 <input id="client-id" name="client-id" type="text" placeholder="e.g., 23203A0027" />
                 <input id="client-password" name="client-password" type="password" placeholder="Set password" />
             </div>
-            <button class="btn" type="submit">Add Client</button>
+            <div class="button-group">
+                <button class="btn" type="submit">Add Client</button>
+                <button class="btn" type="button" id="open-csv-modal">Add User Through CSV</button>
+            </div>
         </form>
     </div>
 
@@ -28,6 +31,70 @@
                     <!-- rows inserted here by admin.js -> loadClientsData() -->
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- CSV Upload Modal - Exact Reference Design -->
+    <div class="modal-overlay" id="csv-modal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Upload CSV File</h3>
+                <span class="close-btn" id="close-csv-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- CSV Format Requirements - Blue Box -->
+                <div class="csv-format-box">
+                    <div class="format-title">CSV Format Requirements:</div>
+                    <div class="format-detail">
+                        <span class="detail-label">Required columns:</span>
+                        <span class="detail-value">roll_number</span>, <span class="detail-value">password</span>
+                    </div>
+                    <div class="format-detail">
+                        <span class="detail-label">File formats:</span>
+                        <span class="detail-text">.csv, .xlsx, .xls</span>
+                    </div>
+                    <div class="format-detail">
+                        <span class="detail-label">Example:</span>
+                        <span class="detail-text">23203A0027, password123</span>
+                    </div>
+                    <a href="#" class="template-download-link" id="download-template">
+                        📥 Download Sample Template
+                    </a>
+                </div>
+                
+                <!-- Drag & Drop Zone (Image 1 Style) -->
+                <div class="drag-drop-zone" id="drop-area">
+                    <div class="cloud-upload-icon">
+                        <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+                            <path d="M7 16.5C4.5 16.5 2.5 14.5 2.5 12C2.5 9.5 4.5 7.5 7 7.5C7 5 9 3 11.5 3C14 3 16 5 16 7.5C18.5 7.5 20.5 9.5 20.5 12C20.5 14.5 18.5 16.5 16 16.5" stroke="#1976D2" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M12 11V17M12 11L10 13M12 11L14 13" stroke="#1976D2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <p class="drag-text">Drag & Drop your CSV file here</p>
+                    <p class="or-text">or</p>
+                    <input type="file" id="csv-file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+                    <button type="button" class="browse-files-btn" id="browse-btn">
+                        📁 Browse Files
+                    </button>
+                    <div class="selected-file-name" id="file-name"></div>
+                </div>
+                
+                <!-- Loading State -->
+                <div class="upload-loading-state" id="upload-loading" style="display: none;">
+                    <div class="spinner-loader"></div>
+                    <p class="loading-main-text">Uploading students...</p>
+                    <p class="loading-sub-text">Please wait, this may take a moment</p>
+                </div>
+                
+                <!-- Result Message -->
+                <div class="upload-result" id="result-message" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="footer-btn btn-cancel-modal" id="cancel-upload">Cancel</button>
+                <button class="footer-btn btn-upload-modal" id="submit-upload" disabled>
+                    📤 Upload & Add Users
+                </button>
+            </div>
         </div>
     </div>
 </section>
@@ -64,7 +131,6 @@ async function loadClientsData() {
         tbody.innerHTML = '';
         clients.forEach(client => {
             const tr = document.createElement('tr');
-            // sanitize student string to remove any trailing "(...)" device label
             const studentIdRaw = client.roll_no || client.name || 'N/A';
             const studentId = String(studentIdRaw).replace(/\s*\([^)]*\)\s*$/, '');
             const ip = client.ip || 'N/A';
@@ -157,7 +223,8 @@ document.getElementById('add-client-form')?.addEventListener('submit', async (e)
     }
 });
 
-// Load when DOM is ready
+// Load clients on page load
 document.addEventListener('DOMContentLoaded', loadClientsData);
 loadClientsData();
 </script>
+

@@ -1314,3 +1314,291 @@ function renderTrafficChart(ctx, chartData) {
     }
   });
 }
+
+// ========== CSV UPLOAD FUNCTIONALITY - SIMPLE VERSION ==========
+window.csvInitialized = false;
+
+function initCSVUpload() {
+    console.log('CSV Upload: Initializing...');
+    
+    const csvModal = document.getElementById('csv-modal');
+    const openModalBtn = document.getElementById('open-csv-modal');
+    
+    console.log('CSV Elements:', {
+        modal: !!csvModal,
+        button: !!openModalBtn
+    });
+    
+    if (!csvModal || !openModalBtn) {
+        console.log('CSV elements not found yet');
+        return false;
+    }
+    
+    // Check if already initialized
+    if (window.csvInitialized) {
+        console.log('CSV already initialized, skipping...');
+        return true;
+    }
+    
+    console.log('CSV elements found! Setting up...');
+    
+    const closeModalBtn = document.getElementById('close-csv-modal');
+    const cancelBtn = document.getElementById('cancel-upload');
+    const submitBtn = document.getElementById('submit-upload');
+    const fileInput = document.getElementById('csv-file-input');
+    const browseBtn = document.getElementById('browse-btn');
+    const dropArea = document.getElementById('drop-area');
+    const fileName = document.getElementById('file-name');
+    const resultMessage = document.getElementById('result-message');
+    const uploadLoading = document.getElementById('upload-loading');
+    const downloadTemplate = document.getElementById('download-template');
+    
+    let selectedFile = null;
+
+    // IMPORTANT: Use onclick instead of addEventListener
+    openModalBtn.onclick = function(e) {
+        console.log('===== CSV BUTTON CLICKED! =====');
+        e.preventDefault();
+        e.stopPropagation();
+        csvModal.style.display = 'flex';
+        resetUploadForm();
+        console.log('Modal should be visible now');
+    };
+    
+    console.log('Button onclick handler attached');
+
+    // Close modal handlers
+    if (closeModalBtn) {
+        closeModalBtn.onclick = function() {
+            console.log('Close button clicked');
+            csvModal.style.display = 'none';
+        };
+    }
+    
+    if (cancelBtn) {
+        cancelBtn.onclick = function() {
+            console.log('Cancel button clicked');
+            csvModal.style.display = 'none';
+        };
+    }
+    
+    csvModal.onclick = function(e) {
+        if (e.target === csvModal) {
+            console.log('Modal overlay clicked');
+            csvModal.style.display = 'none';
+        }
+    };
+
+    // Browse button
+    if (browseBtn && fileInput) {
+        browseBtn.onclick = function() {
+            console.log('Browse button clicked');
+            fileInput.click();
+        };
+    }
+
+    // File input change
+    if (fileInput) {
+        fileInput.onchange = function(e) {
+            console.log('File selected:', e.target.files[0]);
+            handleFileSelect(e.target.files[0]);
+        };
+    }
+
+    // Drag and drop
+    if (dropArea) {
+        dropArea.ondragover = function(e) {
+            e.preventDefault();
+            dropArea.style.borderColor = '#007bff';
+            dropArea.style.backgroundColor = '#e7f3ff';
+        };
+
+        dropArea.ondragleave = function() {
+            dropArea.style.borderColor = '#007bff';
+            dropArea.style.backgroundColor = 'transparent';
+        };
+
+        dropArea.ondrop = function(e) {
+            e.preventDefault();
+            console.log('File dropped');
+            dropArea.style.borderColor = '#007bff';
+            dropArea.style.backgroundColor = 'transparent';
+            handleFileSelect(e.dataTransfer.files[0]);
+        };
+    }
+
+    function handleFileSelect(file) {
+        console.log('Handling file:', file);
+        if (!file) return;
+        
+        const validTypes = ['.csv', '.xlsx', '.xls'];
+        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+        
+        if (!validTypes.includes(fileExtension)) {
+            showResult('error', '❌ Invalid file format. Please upload CSV or Excel file.');
+            return;
+        }
+        
+        selectedFile = file;
+        if (fileName) {
+            fileName.textContent = `✅ Selected: ${file.name}`;
+            fileName.style.color = '#28a745';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+        if (resultMessage) resultMessage.style.display = 'none';
+        console.log('File ready:', file.name);
+    }
+
+    // Submit upload
+    if (submitBtn) {
+        submitBtn.onclick = async function() {
+            console.log('Submit button clicked');
+            if (!selectedFile) {
+                console.log('No file selected');
+                return;
+            }
+            
+            const token = localStorage.getItem('admin_token');
+            if (!token) {
+                alert('Please log in as admin');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            
+            if (uploadLoading) uploadLoading.style.display = 'block';
+            submitBtn.disabled = true;
+            if (resultMessage) resultMessage.style.display = 'none';
+            
+            try {
+                console.log('Sending upload request...');
+                const response = await fetch('/api/admin/bulk-upload', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: formData
+                });
+                
+                const data = await response.json();
+                console.log('Upload response:', data);
+                
+                if (response.ok) {
+                    let message = `✅ Upload completed!\n\n`;
+                    message += `• Added: ${data.added} students\n`;
+                    message += `• Skipped: ${data.skipped} students\n`;
+                    
+                    if (data.errors && data.errors.length > 0) {
+                        message += `\n⚠️ Errors:\n${data.errors.join('\n')}`;
+                    }
+                    
+                    showResult('success', message);
+                    
+                    setTimeout(() => {
+                        if (typeof loadClientsData === 'function') {
+                            loadClientsData();
+                        }
+                    }, 2000);
+                } else {
+                    showResult('error', `❌ ${data.error || 'Upload failed'}`);
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showResult('error', '❌ Network error: ' + error.message);
+            } finally {
+                if (uploadLoading) uploadLoading.style.display = 'none';
+                submitBtn.disabled = false;
+            }
+        };
+    }
+
+    function showResult(type, message) {
+        if (!resultMessage) return;
+        
+        resultMessage.className = `result-message ${type}`;
+        resultMessage.textContent = message;
+        resultMessage.style.display = 'block';
+        resultMessage.style.padding = '15px';
+        resultMessage.style.borderRadius = '6px';
+        resultMessage.style.marginTop = '15px';
+        resultMessage.style.whiteSpace = 'pre-line';
+        
+        if (type === 'success') {
+            resultMessage.style.backgroundColor = '#d4edda';
+            resultMessage.style.color = '#155724';
+            resultMessage.style.border = '1px solid #c3e6cb';
+        } else {
+            resultMessage.style.backgroundColor = '#f8d7da';
+            resultMessage.style.color = '#721c24';
+            resultMessage.style.border = '1px solid #f5c6cb';
+        }
+    }
+
+    function resetUploadForm() {
+        console.log('Resetting form');
+        selectedFile = null;
+        if (fileInput) fileInput.value = '';
+        if (fileName) fileName.textContent = '';
+        if (submitBtn) submitBtn.disabled = true;
+        if (resultMessage) resultMessage.style.display = 'none';
+        if (uploadLoading) uploadLoading.style.display = 'none';
+    }
+
+    // Download template
+    if (downloadTemplate) {
+        downloadTemplate.onclick = function(e) {
+            e.preventDefault();
+            console.log('Downloading template');
+            const csvContent = "roll_number,password\n23203A0027,password123\n23203A0038,password456\n23203A0045,password789";
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'student_template.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        };
+    }
+    
+    window.csvInitialized = true;
+    console.log('✅ CSV Upload initialized successfully!');
+    return true;
+}
+
+// Retry mechanism
+let csvRetries = 0;
+function tryInitCSV() {
+    if (initCSVUpload()) {
+        console.log('✅ CSV Upload ready!');
+        return;
+    }
+    
+    csvRetries++;
+    if (csvRetries < 15) {
+        setTimeout(tryInitCSV, 500);
+    }
+}
+
+// Try on DOM ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryInitCSV);
+} else {
+    tryInitCSV();
+}
+
+// Watch for clients page
+const csvObserver = new MutationObserver(function(mutations) {
+    const clientsPage = document.getElementById('clients-page');
+    if (clientsPage && !window.csvInitialized) {
+        console.log('📄 Clients page detected');
+        setTimeout(tryInitCSV, 200);
+    }
+});
+
+csvObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+});
+
+console.log('🔄 CSV Upload module loaded');
