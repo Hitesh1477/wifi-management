@@ -13,7 +13,7 @@ anomalies = db["anomalies"]
 # =========================
 # Configuration
 # =========================
-WINDOW_MINUTES = 5
+WINDOW_MINUTES = 60  # Increased for testing (was 5)
 
 APP_USAGE_THRESHOLD = 5
 CATEGORY_ABUSE_RATIO = 0.3
