@@ -18,55 +18,57 @@ body {
 /* Login Box */
 .login-box {
     background: #fff;
-    width: 420px;
+    width: 275px;
     padding: 50px;
-    padding-top: 60px;
-    padding-bottom: 70px;   /* ✅ Increased height */
-    border-radius: 12px;
+    padding-top: 30px;
+    padding-bottom: 30px;   /* ✅ Increased height */
+    border-radius: 1px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.15);
     text-align: center;
 }
 
 
 .logo {
-    width: 80px;
-    margin-bottom: 10px;
+    width: 200px;
+    margin-bottom: 1px;
 }
 
 input {
-    width: 90%;
-    padding: 12px;
-    margin: 10px 0;
-    border-radius: 6px;
-    border: 1px solid #aaa;
+    width: 92%;
+    padding: 10px;
+    margin: 8px 0;
+    border-radius: 5px;
+    border: 1px solid #ccc;
     outline: none;
 }
 
 button {
-    width: 95%;
-    padding: 12px;
-    background: #2e8f47;
+    width: 100%;
+    padding: 10px;
+    margin: 0px 1px ;
+    margin-top: 10px;
+    background: #42b72a;
     color: white;
-    font-size: 16px;
+    font-size: 0.9rem;
     border: none;
     border-radius: 6px;
     cursor: pointer;
 }
 
 button:hover {
-   background: #2e8f47;
+   background: #42b72a;
 }
 
 .error-text {
     color: red;
-    font-size: 14px;
-    margin-top: 5px;
+    font-size: 0.9rem;
+    margin-top: 15px;
 }
 
 .portal-link {
-    margin-top: 15px;
+    margin-top: 10px;
     display: block;
-    font-size: 14px;
+    font-size: 0.9rem;
     color: #0066ff;
     text-decoration: none;
 }
