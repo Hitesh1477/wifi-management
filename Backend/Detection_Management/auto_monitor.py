@@ -1,75 +1,101 @@
 # auto_monitor.py
 import time
+from collections import defaultdict
+
 from capture import start_capture_stream
 from analyze_activity import analyze_packet
 from save_detections_batch import save_detections_batch
 from session_lookup import get_all_active_ips
 from anomaly_detector import run_anomaly_detection
-
-# 🔁 Real-time ML + blocking
-from realtime_ml import ml_anomaly_check
 from decision_engine import should_block
 from block_user import block_user
+from ml_random_forest import rf_anomaly_check
 
-CAPTURE_INTERVAL = 60  # seconds
+CAPTURE_INTERVAL = 60
 INTERFACE = "Wi-Fi"
 
+def build_features(detections):
+    total = len(detections)
+    if total == 0:
+        return None
 
-def realtime_decision(roll_no, rule_triggered):
-    ml_flag = ml_anomaly_check(roll_no)
+    counts = defaultdict(int)
+    for d in detections:
+        counts[d["category"]] += 1
 
-    if should_block(rule_triggered, ml_flag):
-        block_user(
-            roll_no,
-            reason="Real-time anomaly detected (Rule + ML)"
-        )
-        print(f"🚫 User blocked in real-time: {roll_no}")
+    video = counts.get("video", 0)
+    social = counts.get("social", 0)
+    messaging = counts.get("messaging", 0)
+    gaming = counts.get("gaming", 0)
 
+    video_ratio = video / total
+    social_ratio = social / total
+    messaging_ratio = messaging / total
+    gaming_ratio = gaming / total
+    entertainment_ratio = (video + social + gaming) / total
+
+    return [
+        total,
+        video,
+        social,
+        messaging,
+        gaming,
+        video_ratio,
+        social_ratio,
+        messaging_ratio,
+        gaming_ratio,
+        entertainment_ratio
+    ]
 
 def main():
-    print("🚀 Real-time Wi-Fi monitoring started")
-
     buffer = []
     last_flush = time.time()
 
-    try:
-        for packet in start_capture_stream(INTERFACE):
-
+    while True:
+        try:
             active_ips = get_all_active_ips()
-            if packet["client_ip"] not in active_ips:
-                continue
+            for packet in start_capture_stream(INTERFACE):
+                if packet["client_ip"] not in active_ips:
+                    continue
 
-            detection = analyze_packet(packet)
-            if detection:
-                buffer.append(detection)
+                detection = analyze_packet(packet)
+                if detection:
+                    buffer.append(detection)
 
-            # ⏱ Flush every CAPTURE_INTERVAL seconds
-            if time.time() - last_flush >= CAPTURE_INTERVAL:
-                if buffer:
-                    save_detections_batch(buffer)
+                if time.time() - last_flush >= CAPTURE_INTERVAL:
+                    if buffer:
+                        save_detections_batch(buffer)
+                        run_anomaly_detection()
 
-                    # 🔍 Rule-based anomaly detection (batch)
-                    run_anomaly_detection()
+                        per_user = defaultdict(list)
+                        for d in buffer:
+                            roll_no = d.get("roll_no")
+                            if roll_no:
+                                per_user[roll_no].append(d)
 
-                    # 🔁 Real-time decision per user
-                    for d in buffer:
-                        roll_no = d.get("roll_no")
-                        if not roll_no:
-                            continue
+                        for roll_no, user_data in per_user.items():
+                            rule_flag = any(d.get("score", 1) > 1 for d in user_data)
 
-                        # Simple rule trigger signal
-                        rule_triggered = d.get("score", 1) > 1
-                        realtime_decision(roll_no, rule_triggered)
+                            features = build_features(user_data)
+                            if not features:
+                                continue
 
-                    buffer.clear()
+                            ml_flag, confidence = rf_anomaly_check(features)
 
-                last_flush = time.time()
+                            if should_block(rule_flag, ml_flag):
+                                block_user(
+                                    roll_no,
+                                    confidence,
+                                    reason="Auto-ban triggered by Rule + Random Forest ML"
+                                )
 
-    except KeyboardInterrupt:
-        print("🛑 Monitoring stopped by user")
-    except Exception as e:
-        print(f"⚠️ Runtime error: {e}")
+                        buffer.clear()
+                    last_flush = time.time()
 
+        except KeyboardInterrupt:
+            break
+        except Exception:
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()

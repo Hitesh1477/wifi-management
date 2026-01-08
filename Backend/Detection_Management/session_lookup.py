@@ -1,78 +1,59 @@
 # session_lookup.py
 from pymongo import MongoClient
+from datetime import datetime, UTC
 
-try:
-    client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
-    db = client["studentapp"]
-    sessions_collection = db["active_sessions"]
-    blocked_users = db["blocked_users"]
-    print("✅ Session lookup connected to MongoDB")
-except Exception as e:
-    print(f"⚠️ MongoDB connection warning: {e}")
-    sessions_collection = None
-    blocked_users = None
-
+client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
+db = client["studentapp"]
+sessions_collection = db["active_sessions"]
+blocked_users = db["blocked_users"]
 
 def is_user_blocked(roll_no):
-    if blocked_users is None:
+    ban = blocked_users.find_one({"roll_no": roll_no, "status": "blocked"})
+    if not ban:
         return False
-    return blocked_users.find_one({"roll_no": roll_no, "status": "blocked"}) is not None
 
+    if ban.get("ban_type") == "permanent":
+        return True
+
+    expires_at = ban.get("expires_at")
+    if expires_at and datetime.now(UTC) >= expires_at:
+        blocked_users.update_one(
+            {"roll_no": roll_no},
+            {"$set": {"status": "expired"}}
+        )
+        return False
+
+    return True
 
 def get_roll_no_from_ip(client_ip):
-    """
-    Lookup roll number from client IP.
-    Blocked users are ignored.
-    """
-    if sessions_collection is None:
+    session = sessions_collection.find_one({
+        "client_ip": client_ip,
+        "status": "active"
+    })
+
+    if not session or "roll_no" not in session:
         return None
 
-    try:
-        session = sessions_collection.find_one({
-            "client_ip": client_ip,
-            "status": "active"
-        })
+    roll_no = session["roll_no"]
 
-        if not session or "roll_no" not in session:
-            return None
-
-        roll_no = session["roll_no"]
-
-        # 🔒 Block check
-        if is_user_blocked(roll_no):
-            print(f"🚫 Blocked user detected: {roll_no}")
-            return None
-
-        return roll_no
-
-    except Exception as e:
-        print(f"⚠️ Error looking up session for IP {client_ip}: {e}")
+    if is_user_blocked(roll_no):
         return None
 
-
-def is_user_active(roll_no):
-    if sessions_collection is None:
-        return False
-
-    try:
-        return sessions_collection.find_one({
-            "roll_no": roll_no,
-            "status": "active"
-        }) is not None
-    except Exception:
-        return False
-
+    return roll_no
 
 def get_all_active_ips():
-    if sessions_collection is None:
-        return set()
+    sessions = sessions_collection.find({"status": "active"})
+    active_ips = set()
 
-    try:
-        sessions = sessions_collection.find({"status": "active"})
-        return {
-            s["client_ip"]
-            for s in sessions
-            if "client_ip" in s and not is_user_blocked(s.get("roll_no"))
-        }
-    except Exception:
-        return set()
+    for s in sessions:
+        roll_no = s.get("roll_no")
+        if "client_ip" in s and not is_user_blocked(roll_no):
+            active_ips.add(s["client_ip"])
+
+    return active_ips
+
+def is_user_active(roll_no):
+    return sessions_collection.find_one({
+        "roll_no": roll_no,
+        "status": "active"
+    }) is not None

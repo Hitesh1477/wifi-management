@@ -1,228 +1,289 @@
-📡 Wi-Fi Management System with Real-Time Anomaly Detection & Blocking
-📌 Project Overview
+# Wi-Fi Management System with ML-Based Real-Time Anomaly Detection and Auto-Ban
 
-This project implements a real-time Wi-Fi monitoring and anomaly detection system designed for shared networks such as colleges, hostels, and labs.
+---
 
-The system captures live network traffic, identifies applications being used, detects abnormal user behavior using rule-based logic and machine learning, and blocks users in real time when suspicious activity is confirmed.
+## Overview
 
-The design focuses on:
+A backend system that monitors Wi-Fi traffic in real time, identifies applications, detects abnormal behavior using rules and machine learning, and enforces automated bans based on severity.
 
-Explainability
+The system uses:
 
-Privacy (no payload inspection)
+* Live packet capture (DNS + TLS SNI)
+* Domain-to-app classification
+* Rule-based anomaly detection
+* Random Forest ML anomaly scoring
+* Auto-ban enforcement (temporary / permanent)
 
-Real-time response
+---
 
-Academic and industry relevance
+## Key Features
 
-🎯 Objectives
+### 1. Live Traffic Capture
 
-Monitor live Wi-Fi traffic
+* Captures DNS/TLS SNI fields via `tshark`
+* Extracts domains and client IPs in real time
+* Works without decrypting payloads
 
-Identify applications and traffic categories
+### 2. Device Identification
 
-Store structured activity data in MongoDB
+* Maps `client_ip → roll_no` via `active_sessions` collection
 
-Detect abnormal behavior using rules
+### 3. Application Classification
 
-Confirm anomalies using machine learning
+* Domain mapped to app names using `domain_map.py`
+* Category mapped via `model.py` (video, social, messaging, gaming, search, system)
 
-Block users automatically in real time
+### 4. Rule-Based Anomalies
 
-Avoid false positives using safe decision logic
+Detections include:
 
-🧠 High-Level System Flow
-Live Network Traffic
-        ↓
-Packet Capture (tshark)
-        ↓
-App & Category Detection
-        ↓
-MongoDB (detections)
-        ↓
-Rule-Based Anomaly Detection
-        ↓
-ML Confirmation (Isolation Forest)
-        ↓
-Decision Engine
-        ↓
-Real-Time User Blocking
+* Excessive app usage
+* Category abuse (video/social heavy)
+* Traffic spikes
 
-🗂️ Project Structure
-Backend/Detection_Management/
-│
-├── capture.py                # Live packet capture (tshark)
-├── auto_monitor.py           # Real-time monitoring & decision loop
-├── analyze_activity.py       # Packet → app & category mapping
-├── domain_map.py             # Domain → application mapping
-├── model.py                  # Traffic category classification
-├── save_detections_batch.py  # MongoDB batch inserts
-├── session_lookup.py         # IP → roll_no mapping
-├── anomaly_detector.py       # Rule-based anomaly detection
-├── realtime_ml.py            # Real-time ML (Isolation Forest)
-├── decision_engine.py        # Rule + ML decision logic
-├── block_user.py             # Real-time user blocking
-├── db_client.py              # MongoDB connection
-└── README.md
+Stored in: `anomalies` collection
 
-🛠️ Technologies Used
+### 5. Machine Learning Anomalies
 
-Python 3
+Random Forest model detects:
 
-tshark / Wireshark
+* High volume usage patterns
+* Category ratios
+* Gaming behavior
+* Entertainment abuse
 
-MongoDB
+Outputs confidence score (0–1)
 
-PyMongo
+### 6. Auto-Ban System
 
-Scikit-learn
+Based on ML confidence:
 
-NumPy
+* `< 0.75` → No ban
+* `≥ 0.75 and < 0.95` → Temporary ban (24h)
+* `≥ 0.95` → Permanent ban
 
-Windows / PowerShell
+Stored in: `blocked_users` collection
+Temporary bans automatically expire.
 
-📊 Database Design
-studentapp.detections
+### 7. Enforcement Logic
 
-Stores per-event user activity.
+Blocked users are:
 
+* Removed from processing
+* Ignored at capture-level
+* Auto-unblocked if temporary expiry reached
+
+---
+
+## System Architecture
+
+### Components
+
+| Component               | File                       |
+| ----------------------- | -------------------------- |
+| Live Capture            | `capture.py`               |
+| Packet Analysis         | `analyze_activity.py`      |
+| DB Save Pipeline        | `save_detections_batch.py` |
+| Rule Engine             | `anomaly_detector.py`      |
+| Random Forest ML        | `ml_random_forest.py`      |
+| Auto-Decision Logic     | `decision_engine.py`       |
+| Auto-Ban Logic          | `block_user.py`            |
+| Session Management      | `session_lookup.py`        |
+| Real-Time Orchestration | `auto_monitor.py`          |
+
+### MongoDB Collections
+
+| Collection        | Purpose                           |
+| ----------------- | --------------------------------- |
+| `active_sessions` | Maps IP → roll_no                 |
+| `detections`      | Raw activity records              |
+| `anomalies`       | Rule/ML flagged anomalies         |
+| `blocked_users`   | Ban records (temporary/permanent) |
+
+---
+
+## Data Model
+
+### `detections`
+
+```json
 {
   "roll_no": "101",
-  "client_ip": "192.168.137.1",
-  "domain": "www.youtube.com",
+  "client_ip": "192.168.0.10",
+  "domain": "youtube.com",
   "app_name": "YouTube",
   "category": "video",
-  "timestamp": "UTC time"
+  "timestamp": ...
 }
+```
 
-studentapp.anomalies
+### `anomalies`
 
-Stores detected anomalies (rule-based and ML).
-
+```json
 {
   "roll_no": "101",
-  "type": "EXCESSIVE_APP_USAGE",
+  "type": "CATEGORY_ABUSE",
   "detected_by": "rule",
   "severity": "medium",
-  "timestamp": "UTC time"
+  "timestamp": ...
 }
+```
 
-studentapp.blocked_users
+### `blocked_users`
 
-Stores real-time blocked users.
-
+```json
 {
   "roll_no": "101",
-  "reason": "Real-time anomaly detected (Rule + ML)",
-  "blocked_at": "UTC time",
+  "ban_type": "temporary",
+  "confidence": 0.82,
+  "blocked_at": ...,
+  "expires_at": ...,
   "status": "blocked"
 }
+```
 
-🚨 Anomaly Detection Logic
-Rule-Based Detection
+---
 
-Excessive application usage
+## Machine Learning Model (Random Forest)
 
-High video/social media dominance
+### Input Features (length 10)
 
-Sudden traffic spikes
+1. total requests
+2. video count
+3. social count
+4. messaging count
+5. gaming count
+6. video_ratio
+7. social_ratio
+8. messaging_ratio
+9. gaming_ratio
+10. entertainment_ratio
 
-Rules provide fast and explainable detection.
+### Output
 
-Machine Learning (Isolation Forest)
+* `prediction` → normal / anomaly
+* `confidence` → float between 0–1
 
-Uses aggregated behavior features
+### Real-Time API
 
-Learns normal usage patterns
+`rf_anomaly_check(features) → (ml_flag, confidence)`
 
-Flags unusual behavior automatically
+---
 
-Works without labeled data
+## Auto-Ban Logic
 
-ML is used as a confirmation layer, not alone.
+| Condition                  | Action              |
+| -------------------------- | ------------------- |
+| `confidence < 0.75`        | No action           |
+| `0.75 ≤ confidence < 0.95` | Temporary ban (24h) |
+| `confidence ≥ 0.95`        | Permanent ban       |
 
-🔐 Real-Time Blocking Logic
+Permanent bans do not expire.
+Temporary bans expire automatically (handled inside `session_lookup.py`).
 
-A user is blocked only when:
+---
 
-Rule-based anomaly detected
-AND
-ML model confirms abnormal behavior
+## How to Run
 
+### Requirements
 
-This ensures:
+* Python 3.10+
+* MongoDB running locally
+* Tshark installed (Wireshark)
 
-High accuracy
+### Start MongoDB (if needed)
 
-Fewer false positives
-
-Safe real-time enforcement
-
-Blocking is implemented at the database level, making it safe for academic environments.
-
-▶️ How to Run the Project
-1️⃣ Start MongoDB
+```
 mongod
+```
 
-2️⃣ Insert Active User Session (Testing)
-use studentapp
+### Run Monitoring System
+
+```
+python auto_monitor.py
+```
+
+---
+
+## How to Test
+
+1. Insert a mock active session
+
+```js
 db.active_sessions.insertOne({
   roll_no: "101",
-  client_ip: "192.168.137.1",
-  status: "active",
-  login_time: new Date()
+  client_ip: "192.168.0.50",
+  status: "active"
 })
+```
 
-3️⃣ Start Real-Time Monitoring
-python auto_monitor.py
+2. Generate traffic from the device
 
-4️⃣ Generate Traffic
+* Video: YouTube/Netflix
+* Social: Instagram/Facebook
+* Gaming: PUBG/BGMI
+* Messaging: WhatsApp
 
-YouTube
+3. Check detections
 
-Instagram
-
-Google search
-
-5️⃣ Verify Outputs
+```js
 db.detections.find().pretty()
+```
+
+4. Check rule anomalies
+
+```js
 db.anomalies.find().pretty()
+```
+
+5. Check bans
+
+```js
 db.blocked_users.find().pretty()
+```
 
-✅ Testing Summary
-Component	Status
-Packet capture	✅ Working
-App detection	✅ Accurate
-MongoDB storage	✅ Verified
-Rule detection	✅ Triggered
-ML confirmation	✅ Working
-Real-time blocking	✅ Successful
-🔮 Future Scope
+6. Validate enforcement (blocked user should not generate new detections)
 
-Firewall-level network blocking
+---
 
-Dashboard visualization
+## Models Used
 
-Long-term behavior profiling
+A. **Basic Traffic Statistics**
+The system tracks the number of requests per application and category within time windows.
 
-Advanced ML models (Autoencoders, LSTM)
+B. **User Behavior Features**
+For each user, the system builds statistical features such as category counts and ratios.
 
-Automated unblock policies
+C. **Rule-Based Indicators**
+Rules detect high usage patterns, category abuse, and spikes.
 
-Admin alert system
+D. **Random Forest ML Model**
+A supervised model that flags abnormal patterns and produces a confidence score.
 
-🎓 Academic Significance
+---
 
-Real-time intelligent system
+## Future Scope
 
-Explainable AI approach
+* Dashboard UI for visualization
+* Support for deep packet inspection (DPI)
+* Adaptive ML (online learning)
+* Group-level anomaly detection
+* Admin override panel for unbanning
+* Multi-campus deployment support
+* Threat classification (e.g., malware, TOR, VPN)
 
-Privacy-preserving design
+---
 
-Suitable for AI / ML / Cybersecurity projects
+## Status Summary
 
-Strong capstone and viva-ready implementation
+Real-time monitoring, ML anomaly detection, and auto-banning are implemented and working end-to-end with explainable logic.
 
-📌 One-Line Summary
+If you want, deliverables such as:
 
-A real-time Wi-Fi monitoring system that detects abnormal user behavior using rules and machine learning and blocks users automatically with high confidence.
+* full project report
+* viva questions
+* demo script
+* PPT
+* dashboard design
+
+can be provided.
