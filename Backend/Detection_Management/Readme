@@ -1,0 +1,289 @@
+# Wi-Fi Management System with ML-Based Real-Time Anomaly Detection and Auto-Ban
+
+---
+
+## Overview
+
+A backend system that monitors Wi-Fi traffic in real time, identifies applications, detects abnormal behavior using rules and machine learning, and enforces automated bans based on severity.
+
+The system uses:
+
+* Live packet capture (DNS + TLS SNI)
+* Domain-to-app classification
+* Rule-based anomaly detection
+* Random Forest ML anomaly scoring
+* Auto-ban enforcement (temporary / permanent)
+
+---
+
+## Key Features
+
+### 1. Live Traffic Capture
+
+* Captures DNS/TLS SNI fields via `tshark`
+* Extracts domains and client IPs in real time
+* Works without decrypting payloads
+
+### 2. Device Identification
+
+* Maps `client_ip → roll_no` via `active_sessions` collection
+
+### 3. Application Classification
+
+* Domain mapped to app names using `domain_map.py`
+* Category mapped via `model.py` (video, social, messaging, gaming, search, system)
+
+### 4. Rule-Based Anomalies
+
+Detections include:
+
+* Excessive app usage
+* Category abuse (video/social heavy)
+* Traffic spikes
+
+Stored in: `anomalies` collection
+
+### 5. Machine Learning Anomalies
+
+Random Forest model detects:
+
+* High volume usage patterns
+* Category ratios
+* Gaming behavior
+* Entertainment abuse
+
+Outputs confidence score (0–1)
+
+### 6. Auto-Ban System
+
+Based on ML confidence:
+
+* `< 0.75` → No ban
+* `≥ 0.75 and < 0.95` → Temporary ban (24h)
+* `≥ 0.95` → Permanent ban
+
+Stored in: `blocked_users` collection
+Temporary bans automatically expire.
+
+### 7. Enforcement Logic
+
+Blocked users are:
+
+* Removed from processing
+* Ignored at capture-level
+* Auto-unblocked if temporary expiry reached
+
+---
+
+## System Architecture
+
+### Components
+
+| Component               | File                       |
+| ----------------------- | -------------------------- |
+| Live Capture            | `capture.py`               |
+| Packet Analysis         | `analyze_activity.py`      |
+| DB Save Pipeline        | `save_detections_batch.py` |
+| Rule Engine             | `anomaly_detector.py`      |
+| Random Forest ML        | `ml_random_forest.py`      |
+| Auto-Decision Logic     | `decision_engine.py`       |
+| Auto-Ban Logic          | `block_user.py`            |
+| Session Management      | `session_lookup.py`        |
+| Real-Time Orchestration | `auto_monitor.py`          |
+
+### MongoDB Collections
+
+| Collection        | Purpose                           |
+| ----------------- | --------------------------------- |
+| `active_sessions` | Maps IP → roll_no                 |
+| `detections`      | Raw activity records              |
+| `anomalies`       | Rule/ML flagged anomalies         |
+| `blocked_users`   | Ban records (temporary/permanent) |
+
+---
+
+## Data Model
+
+### `detections`
+
+```json
+{
+  "roll_no": "101",
+  "client_ip": "192.168.0.10",
+  "domain": "youtube.com",
+  "app_name": "YouTube",
+  "category": "video",
+  "timestamp": ...
+}
+```
+
+### `anomalies`
+
+```json
+{
+  "roll_no": "101",
+  "type": "CATEGORY_ABUSE",
+  "detected_by": "rule",
+  "severity": "medium",
+  "timestamp": ...
+}
+```
+
+### `blocked_users`
+
+```json
+{
+  "roll_no": "101",
+  "ban_type": "temporary",
+  "confidence": 0.82,
+  "blocked_at": ...,
+  "expires_at": ...,
+  "status": "blocked"
+}
+```
+
+---
+
+## Machine Learning Model (Random Forest)
+
+### Input Features (length 10)
+
+1. total requests
+2. video count
+3. social count
+4. messaging count
+5. gaming count
+6. video_ratio
+7. social_ratio
+8. messaging_ratio
+9. gaming_ratio
+10. entertainment_ratio
+
+### Output
+
+* `prediction` → normal / anomaly
+* `confidence` → float between 0–1
+
+### Real-Time API
+
+`rf_anomaly_check(features) → (ml_flag, confidence)`
+
+---
+
+## Auto-Ban Logic
+
+| Condition                  | Action              |
+| -------------------------- | ------------------- |
+| `confidence < 0.75`        | No action           |
+| `0.75 ≤ confidence < 0.95` | Temporary ban (24h) |
+| `confidence ≥ 0.95`        | Permanent ban       |
+
+Permanent bans do not expire.
+Temporary bans expire automatically (handled inside `session_lookup.py`).
+
+---
+
+## How to Run
+
+### Requirements
+
+* Python 3.10+
+* MongoDB running locally
+* Tshark installed (Wireshark)
+
+### Start MongoDB (if needed)
+
+```
+mongod
+```
+
+### Run Monitoring System
+
+```
+python auto_monitor.py
+```
+
+---
+
+## How to Test
+
+1. Insert a mock active session
+
+```js
+db.active_sessions.insertOne({
+  roll_no: "101",
+  client_ip: "192.168.0.50",
+  status: "active"
+})
+```
+
+2. Generate traffic from the device
+
+* Video: YouTube/Netflix
+* Social: Instagram/Facebook
+* Gaming: PUBG/BGMI
+* Messaging: WhatsApp
+
+3. Check detections
+
+```js
+db.detections.find().pretty()
+```
+
+4. Check rule anomalies
+
+```js
+db.anomalies.find().pretty()
+```
+
+5. Check bans
+
+```js
+db.blocked_users.find().pretty()
+```
+
+6. Validate enforcement (blocked user should not generate new detections)
+
+---
+
+## Models Used
+
+A. **Basic Traffic Statistics**
+The system tracks the number of requests per application and category within time windows.
+
+B. **User Behavior Features**
+For each user, the system builds statistical features such as category counts and ratios.
+
+C. **Rule-Based Indicators**
+Rules detect high usage patterns, category abuse, and spikes.
+
+D. **Random Forest ML Model**
+A supervised model that flags abnormal patterns and produces a confidence score.
+
+---
+
+## Future Scope
+
+* Dashboard UI for visualization
+* Support for deep packet inspection (DPI)
+* Adaptive ML (online learning)
+* Group-level anomaly detection
+* Admin override panel for unbanning
+* Multi-campus deployment support
+* Threat classification (e.g., malware, TOR, VPN)
+
+---
+
+## Status Summary
+
+Real-time monitoring, ML anomaly detection, and auto-banning are implemented and working end-to-end with explainable logic.
+
+If you want, deliverables such as:
+
+* full project report
+* viva questions
+* demo script
+* PPT
+* dashboard design
+
+can be provided.
