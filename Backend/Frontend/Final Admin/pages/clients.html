@@ -1,0 +1,260 @@
+<section class="page" id="clients-page">
+    <div class="card">
+        <h2>Add New Student/Device</h2>
+        <form id="add-client-form">
+            <div class="form-row">
+                <input id="client-id" name="client-id" type="text" placeholder="e.g., 23203A0027" />
+                <input id="client-password" name="client-password" type="password" placeholder="Set password" />
+            </div>
+            <div class="button-group">
+                <button class="btn" type="submit">Add Client</button>
+                <button class="btn" type="button" id="open-csv-modal">Add User Through CSV</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="table-container">
+        <h3>All Connected Clients</h3>
+        <!-- Search Box -->
+        <div style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+            <input 
+                type="search" 
+                id="student-search" 
+                placeholder="🔍 Search by Student ID, IP, or Activity..."
+                style="width: 100%; max-width: 400px; padding: 10px 14px; border-radius: 8px; border: 1px solid #e6e9ed; font-size: 14px;"
+            >
+        </div>
+        <div class="table-responsive">
+            <table class="clients-table">
+                <thead>
+                    <tr>
+                        <th>STUDENT</th>
+                        <th>IP ADDRESS</th>
+                        <th>DATA USAGE (24H)</th>
+                        <th>CURRENT ACTIVITY</th>
+                        <th>STATUS</th>
+                        <th>ACTION</th>
+                    </tr>
+                </thead>
+                <tbody id="client-list-body">
+                    <!-- rows inserted here by admin.js -> loadClientsData() -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CSV Upload Modal - Exact Reference Design -->
+    <div class="modal-overlay" id="csv-modal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Upload CSV File</h3>
+                <span class="close-btn" id="close-csv-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- CSV Format Requirements - Blue Box -->
+                <div class="csv-format-box">
+                    <div class="format-title">CSV Format Requirements:</div>
+                    <div class="format-detail">
+                        <span class="detail-label">Required columns:</span>
+                        <span class="detail-value">roll_number</span>, <span class="detail-value">password</span>
+                    </div>
+                    <div class="format-detail">
+                        <span class="detail-label">File formats:</span>
+                        <span class="detail-text">.csv, .xlsx, .xls</span>
+                    </div>
+                    <div class="format-detail">
+                        <span class="detail-label">Example:</span>
+                        <span class="detail-text">23203A0027, password123</span>
+                    </div>
+                    <a href="#" class="template-download-link" id="download-template">
+                        📥 Download Sample Template
+                    </a>
+                </div>
+                
+                <!-- Drag & Drop Zone (Image 1 Style) -->
+                <div class="drag-drop-zone" id="drop-area">
+                    <div class="cloud-upload-icon">
+                        <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+                            <path d="M7 16.5C4.5 16.5 2.5 14.5 2.5 12C2.5 9.5 4.5 7.5 7 7.5C7 5 9 3 11.5 3C14 3 16 5 16 7.5C18.5 7.5 20.5 9.5 20.5 12C20.5 14.5 18.5 16.5 16 16.5" stroke="#1976D2" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M12 11V17M12 11L10 13M12 11L14 13" stroke="#1976D2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <p class="drag-text">Drag & Drop your CSV file here</p>
+                    <p class="or-text">or</p>
+                    <input type="file" id="csv-file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+                    <button type="button" class="browse-files-btn" id="browse-btn">
+                        📁 Browse Files
+                    </button>
+                    <div class="selected-file-name" id="file-name"></div>
+                </div>
+                
+                <!-- Loading State -->
+                <div class="upload-loading-state" id="upload-loading" style="display: none;">
+                    <div class="spinner-loader"></div>
+                    <p class="loading-main-text">Uploading students...</p>
+                    <p class="loading-sub-text">Please wait, this may take a moment</p>
+                </div>
+                
+                <!-- Result Message -->
+                <div class="upload-result" id="result-message" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="footer-btn btn-cancel-modal" id="cancel-upload">Cancel</button>
+                <button class="footer-btn btn-upload-modal" id="submit-upload" disabled>
+                    📤 Upload & Add Users
+                </button>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+async function loadClientsData() {
+    const token = localStorage.getItem('admin_token');
+    console.log('Token:', token ? 'exists' : 'MISSING');
+    if (!token) {
+        console.warn('No admin token found - retrying in 2 seconds');
+        setTimeout(loadClientsData, 2000);
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/clients', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        console.log('Fetch response:', res.status);
+        if (!res.ok) {
+            console.error('Failed to fetch clients:', res.status);
+            return;
+        }
+
+        const { clients } = await res.json();
+        console.log('Clients received:', clients);
+        const tbody = document.getElementById('client-list-body');
+
+        if (!tbody || !Array.isArray(clients)) {
+            console.warn('tbody or clients invalid');
+            return;
+        }
+
+        tbody.innerHTML = '';
+        clients.forEach(client => {
+            const tr = document.createElement('tr');
+            const studentIdRaw = client.roll_no || client.name || 'N/A';
+            const studentId = String(studentIdRaw).replace(/\s*\([^)]*\)\s*$/, '');
+            const ip = client.ip || 'N/A';
+            const dataUsage = client.data ? client.data + ' GB' : '0 GB';
+            const activity = client.activity || 'Idle';
+            const blocked = client.blocked === true;
+            const statusClass = blocked ? 'status-blocked' : 'status-active';
+            const statusText = blocked ? 'Blocked' : 'Active';
+
+            tr.innerHTML = `
+                <td>${studentId}</td>
+                <td>${ip}</td>
+                <td>${dataUsage}</td>
+                <td>${activity}</td>
+                <td><span class="${statusClass}">${statusText}</span></td>
+                <td class="action-buttons">
+                    <button class="btn btn-edit" onclick="editClient('${client._id}')">Edit</button>
+                    <button class="btn ${blocked ? 'btn-unblock' : 'btn-block'}" onclick="toggleBlock('${client._id}', ${blocked})">
+                        ${blocked ? 'Unblock' : 'Block'}
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        console.log('Table populated with', clients.length, 'clients');
+    } catch (error) {
+        console.error('Error loading clients:', error);
+    }
+}
+
+async function toggleBlock(clientId, isBlocked) {
+    const token = localStorage.getItem('admin_token');
+    if (!token) return alert('Please log in as admin');
+
+    try {
+        const res = await fetch(`/api/admin/clients/${clientId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ blocked: !isBlocked })
+        });
+        if (!res.ok) {
+            const txt = await res.text();
+            console.error('Block toggle failed:', res.status, txt);
+            return alert('Failed to update client');
+        }
+        await loadClientsData();
+    } catch (err) {
+        console.error(err);
+        alert('Request error');
+    }
+}
+
+function editClient(clientId) {
+    if (typeof openEditModal === 'function') {
+        openEditModal(clientId);
+    }
+}
+
+document.getElementById('add-client-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const roll_no = document.getElementById('client-id')?.value.trim();
+    const password = document.getElementById('client-password')?.value.trim();
+
+    if (!roll_no) return alert('Enter Student ID');
+
+    const token = localStorage.getItem('admin_token');
+    if (!token) return alert('Please log in as admin');
+
+    try {
+        const res = await fetch('/api/admin/clients', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ roll_no, password })
+        });
+        if (!res.ok) {
+            console.error('Add client failed', await res.text());
+            return alert('Failed to add client');
+        }
+        e.target.reset();
+        await loadClientsData();
+    } catch (err) {
+        console.error(err);
+        alert('Request error');
+    }
+});
+
+
+// Load clients on page load
+document.addEventListener('DOMContentLoaded', loadClientsData);
+loadClientsData();
+
+// Search functionality
+document.getElementById('student-search')?.addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    const tbody = document.getElementById('client-list-body');
+    const rows = tbody?.querySelectorAll('tr') || [];
+    
+    rows.forEach(row => {
+        const student = row.children[0]?.textContent.toLowerCase() || '';
+        const ip = row.children[1]?.textContent.toLowerCase() || '';
+        const activity = row.children[3]?.textContent.toLowerCase() || '';
+        
+        const matches = student.includes(searchTerm) || 
+                       ip.includes(searchTerm) || 
+                       activity.includes(searchTerm);
+        
+        row.style.display = matches ? '' : 'none';
+    });
+});
+
+</script>
+
