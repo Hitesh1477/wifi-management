@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Login | Wi-Fi Management</title>
+
+<style>
+    * {
+    box-sizing: border-box;
+}
+    body {
+        /* background: linear-gradient(120deg, #3b82f6, #06b6d4); */
+        height: 100vh;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-family: Arial, sans-serif;
+    }
+
+    .login-box {
+        background: #fff;
+        width: 375px;
+        padding: 40px;
+        padding-top: 30px;
+        padding-bottom: 30px;
+        border-radius: 1px;
+        box-shadow: 0px 4px 15px rgba(0,0,0,0.12);
+        text-align: center;
+    }
+
+    .login-box img {
+        width: 200px;
+        margin-bottom: 1px;
+    }
+
+    h2 {
+        font-size: 20px;
+        margin-bottom: 15px;
+        color: #2a6496;
+    }
+
+    input {
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 0.9rem;
+    }
+
+    button {
+        width: 100%;
+        padding: 10px;
+        background: #42b72a;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        font-weight: bold;
+        margin-top: 10px;
+    }
+
+    button:hover {
+        background: #42b72a;
+    }
+
+    .error {
+        margin-top: 15px;
+        color: red;
+        font-size: 0.9rem;
+    }
+</style>
+
+</head>
+<body>
+
+<div class="login-box">
+    <img src="/Final Admin/vdt-logo.png" alt="College Logo">
+
+    <h2>Admin Login</h2>
+
+    <input type="text" id="username" placeholder="Username">
+    <input type="password" id="password" placeholder="Password">
+
+    <button onclick="adminLogin()">Login</button>
+
+    <div id="error" class="error"></div>
+</div>
+
+<script>
+function adminLogin() {
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+
+    if (!username || !password) {
+        document.getElementById("error").innerText = "Enter username & password";
+        return;
+    }
+
+   // ✅ Use relative URL for LAN compatibility
+    fetch("/api/auth/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.token) {
+            localStorage.setItem("admin_token", data.token);
+            alert("Login Successful ✅");
+            window.location.href = "/admin";
+        } else {
+            document.getElementById("error").innerText = data.message || "Invalid credentials ❌";
+        }
+    })
+    .catch((err) => {
+        console.error("Login error:", err);
+        document.getElementById("error").innerText = "Server not responding";
+    });
+}
+
+function loadDashboardStats() {
+    // ✅ Use relative URL for LAN compatibility
+    fetch("/api/admin/stats", {
+        method: "GET",
+        headers: {
+            "Authorization": "Bearer " + localStorage.getItem("admin_token")
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("totalStudents").innerText = data.total_users;
+        document.getElementById("activeUsers").innerText = data.active_users;
+        document.getElementById("blockedUsers").innerText = data.blocked_users;
+    })
+    .catch(err => console.log("Error loading dashboard:", err));
+}
+
+</script>
+
+</body>
+</html>

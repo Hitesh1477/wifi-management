@@ -1,0 +1,56 @@
+<section class="page" id="reporting-page">
+    <div class="card">
+        <h2>Generate Custom Report</h2>
+        <p>Select your report criteria below. Reports will be generated based on the network's historical data.</p>
+        
+        <form class="settings-form" id="reporting-form">
+            <div class="report-form-grid">
+                
+                <!-- Report Type -->
+                <div class="form-group">
+                    <label for="report-type">1. Report Type</label>
+                    <select id="report-type">
+                        <option value="Top Bandwidth Users">Top Bandwidth Users</option>
+                        <option value="Blocked Site Activity">Blocked Site Activity</option>
+                        <option value="Full Network Audit">Full Network Audit</option>
+                    </select>
+                </div>
+
+                <!-- Time Range -->
+                <div class="form-group">
+                    <label for="report-range">2. Time Range</label>
+                    <select id="report-range">
+                        <option value="daily">Daily</option>
+                        <option value="weekly" selected>Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </div>
+                
+                <!-- Format -->
+                <div class="form-group">
+                    <label for="report-format">3. Format</label>
+                    <select id="report-format">
+                        <option value="PDF">PDF</option>
+                        <!-- MODIFIED: Changed text to be clearer -->
+                        <option value="CSV">Excel (.csv)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Date Pickers (Dynamic) -->
+            <div class="form-group hidden" id="date-picker-group">
+                <label for="report-date" id="date-picker-label">Select Week</label>
+                <input type="date" id="report-date-daily" class="hidden">
+                <input type="week" id="report-date-weekly" class="">
+                <input type="month" id="report-date-monthly" class="hidden">
+            </div>
+
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-download"></i> Generate Report</button>
+        </form>
+    </div>
+
+    <!-- Report Results Area -->
+    <div id="report-results-area">
+        <!-- Reports will be dynamically injected here by admin.js -->
+    </div>
+</section>

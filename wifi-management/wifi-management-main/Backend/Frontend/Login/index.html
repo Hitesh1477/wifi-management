@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Login | VDT</title>
+   <link rel="stylesheet" href="Login/style.css">
+</head>
+
+<body>
+
+<div class="container">
+    <div class="login-box">
+        <a href="https://mycollege.edu.in/" target="_blank" rel="noopener noreferrer">
+            <img src="Login/public/vdt-logo.png" alt="College Logo" class="logo">
+        </a>
+
+        <h3>Network Authentication</h3>
+
+        <input type="text" id="roll_no" placeholder="Roll Number">
+        <input type="password" id="password" placeholder="Password">
+
+        <button onclick="loginUser()">Login</button>
+
+        <p id="error" class="error-text"></p>
+
+        <a href="https://sophos.wdc.vidyalankarlive.com:4443/userportal/webpages/myaccount/login.jsp" class="portal-link">Click here for User Portal</a>
+    </div>
+</div>
+
+<script src="Login/script.js"></script>
+</body>
+</html>
