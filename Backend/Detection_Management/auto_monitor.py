@@ -1,101 +1,88 @@
 # auto_monitor.py
-import time
-from collections import defaultdict
-
 from capture import start_capture_stream
-from analyze_activity import analyze_packet
-from save_detections_batch import save_detections_batch
-from session_lookup import get_all_active_ips
-from anomaly_detector import run_anomaly_detection
-from decision_engine import should_block
-from block_user import block_user
-from ml_random_forest import rf_anomaly_check
+from analyze_activity import analyze_rows
+import signal
+import sys
+import time
+from datetime import datetime, timedelta
 
-CAPTURE_INTERVAL = 60
-INTERFACE = "Wi-Fi"
+# Graceful shutdown handler
+def signal_handler(sig, frame):
+    print("\n⚠️ Monitoring stopped by user")
+    sys.exit(0)
 
-def build_features(detections):
-    total = len(detections)
-    if total == 0:
-        return None
+def auto_monitor(interface="Wi-Fi", interval_minutes=1):
+    signal.signal(signal.SIGINT, signal_handler)
+    print("🚀 Real-time monitoring started...")
+    print(f"💾 Saving detections every {interval_minutes} minute(s)")
+    print("Press Ctrl+C to stop\n")
 
-    counts = defaultdict(int)
-    for d in detections:
-        counts[d["category"]] += 1
-
-    video = counts.get("video", 0)
-    social = counts.get("social", 0)
-    messaging = counts.get("messaging", 0)
-    gaming = counts.get("gaming", 0)
-
-    video_ratio = video / total
-    social_ratio = social / total
-    messaging_ratio = messaging / total
-    gaming_ratio = gaming / total
-    entertainment_ratio = (video + social + gaming) / total
-
-    return [
-        total,
-        video,
-        social,
-        messaging,
-        gaming,
-        video_ratio,
-        social_ratio,
-        messaging_ratio,
-        gaming_ratio,
-        entertainment_ratio
-    ]
-
-def main():
     buffer = []
-    last_flush = time.time()
+    next_save_time = datetime.now() + timedelta(minutes=interval_minutes)
 
-    while True:
-        try:
-            active_ips = get_all_active_ips()
-            for packet in start_capture_stream(INTERFACE):
-                if packet["client_ip"] not in active_ips:
-                    continue
+    try:
+        for row in start_capture_stream(interface):
+            buffer.append(row)
 
-                detection = analyze_packet(packet)
-                if detection:
-                    buffer.append(detection)
+            # ✅ Check if it's time to save (every 1 minute)
+            if datetime.now() >= next_save_time:
+                if buffer:
+                    print(f"⏰ {interval_minutes} minute(s) elapsed. Saving {len(buffer)} detections...")
+                    analyze_rows(buffer)
+                    buffer.clear()
+                else:
+                    print(f"⏰ {interval_minutes} minute(s) elapsed. No activity detected.")
+                
+                # Set next save time
+                next_save_time = datetime.now() + timedelta(minutes=interval_minutes)
 
-                if time.time() - last_flush >= CAPTURE_INTERVAL:
-                    if buffer:
-                        save_detections_batch(buffer)
-                        run_anomaly_detection()
-
-                        per_user = defaultdict(list)
-                        for d in buffer:
-                            roll_no = d.get("roll_no")
-                            if roll_no:
-                                per_user[roll_no].append(d)
-
-                        for roll_no, user_data in per_user.items():
-                            rule_flag = any(d.get("score", 1) > 1 for d in user_data)
-
-                            features = build_features(user_data)
-                            if not features:
-                                continue
-
-                            ml_flag, confidence = rf_anomaly_check(features)
-
-                            if should_block(rule_flag, ml_flag):
-                                block_user(
-                                    roll_no,
-                                    confidence,
-                                    reason="Auto-ban triggered by Rule + Random Forest ML"
-                                )
-
-                        buffer.clear()
-                    last_flush = time.time()
-
-        except KeyboardInterrupt:
-            break
-        except Exception:
-            time.sleep(5)
+    except KeyboardInterrupt:
+        print("\n⚠️ Monitoring stopped by user")
+        if buffer:
+            print("Saving remaining buffer...")
+            analyze_rows(buffer)
+    except Exception as e:
+        print(f"❌ Error in auto_monitor: {e}")
+        if buffer:
+            print("Attempting to save buffered data...")
+            analyze_rows(buffer)
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    # Default to Wi-Fi, or use hotspot adapter for Mobile Hotspot
+    # Usage: python auto_monitor.py [interface]
+    # Examples:
+    #   python auto_monitor.py              -> Uses Wi-Fi
+    #   python auto_monitor.py hotspot      -> Uses Mobile Hotspot (tries multiple names)
+    #   python auto_monitor.py "Local Area Connection* 2"  -> Uses specific interface
+    #   python auto_monitor.py list         -> Lists available interfaces
+    
+    import argparse
+    import subprocess
+    
+    parser = argparse.ArgumentParser(description="Monitor network traffic")
+    parser.add_argument("interface", nargs="?", default="Wi-Fi", 
+                        help="Network interface (default: Wi-Fi, use 'hotspot' for Mobile Hotspot, 'list' to show all)")
+    args = parser.parse_args()
+    
+    interface = args.interface
+    
+    # List interfaces if requested
+    if interface.lower() == "list":
+        print("📋 Available network interfaces:")
+        result = subprocess.run(["tshark", "-D"], capture_output=True, text=True)
+        print(result.stdout)
+        sys.exit(0)
+    
+    # Map "hotspot" to Windows Mobile Hotspot interface
+    # Windows creates virtual adapters named "Local Area Connection* X"
+    if interface.lower() == "hotspot":
+        # Try common hotspot interface names - "Local Area Connection* 2" is most common
+        interface = "Local Area Connection* 2"
+        print(f"📡 Using Mobile Hotspot interface: {interface}")
+        print("💡 If this doesn't work, run: python auto_monitor.py list")
+        print("   Then use the correct interface name directly")
+    else:
+        print(f"📡 Using interface: {interface}")
+    
+    auto_monitor(interface)

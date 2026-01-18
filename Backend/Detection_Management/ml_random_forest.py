@@ -203,3 +203,145 @@ def rf_anomaly_check(features):
     prob = _cached_model.predict_proba(scaled)[0][1]
 
     return pred == 1, float(prob)
+
+
+# =========================
+# Generate Reason for Anomaly
+# =========================
+def generate_reason(features):
+    """Generate human-readable reason for why anomaly was detected"""
+    total = features[0]
+    gaming = features[4]
+    video_ratio = features[5]
+    social_ratio = features[6]
+    gaming_ratio = features[8]
+    entertainment_ratio = features[9]
+    
+    reasons = []
+    
+    if gaming > 0:
+        reasons.append(f"Gaming detected ({int(gaming)} requests, {gaming_ratio:.0%})")
+    
+    if total >= 50:
+        reasons.append(f"High activity ({int(total)} requests)")
+    
+    if video_ratio >= 0.4:
+        reasons.append(f"Excessive video ({video_ratio:.0%})")
+    
+    if social_ratio >= 0.4:
+        reasons.append(f"Excessive social media ({social_ratio:.0%})")
+    
+    if entertainment_ratio >= 0.5 and gaming == 0:
+        reasons.append(f"High entertainment ({entertainment_ratio:.0%})")
+    
+    if not reasons:
+        reasons.append("Unusual behavior pattern")
+    
+    return "; ".join(reasons)
+
+
+# =========================
+# Save Anomalies to Database
+# =========================
+def save_ml_anomalies(roll_nos, client_ips, predictions, probabilities, features):
+    """Save detected anomalies to MongoDB"""
+    now = datetime.now(UTC)
+    saved_count = 0
+    
+    for i, (roll_no, pred, prob) in enumerate(zip(roll_nos, predictions, probabilities)):
+        if pred == 1:  # Anomaly detected
+            if prob >= 0.8:
+                severity = "high"
+            elif prob >= 0.6:
+                severity = "medium"
+            else:
+                severity = "low"
+            
+            reason = generate_reason(features[i])
+            
+            anomalies.insert_one({
+                "roll_no": roll_no,
+                "client_ip": client_ips[i] if client_ips[i] else "unknown",
+                "type": "ML_ANOMALY",
+                "ml_model": "Random Forest Classifier",
+                "confidence": round(float(prob), 3),
+                "severity": severity,
+                "reason": reason,
+                "detected_by": "ml",
+                "features": {
+                    "total_requests": int(features[i][0]),
+                    "video_count": int(features[i][1]),
+                    "social_count": int(features[i][2]),
+                    "messaging_count": int(features[i][3]),
+                    "gaming_count": int(features[i][4]),
+                    "video_ratio": round(float(features[i][5]), 3),
+                    "social_ratio": round(float(features[i][6]), 3),
+                    "gaming_ratio": round(float(features[i][8]), 3),
+                    "entertainment_ratio": round(float(features[i][9]), 3)
+                },
+                "timestamp": now
+            })
+            saved_count += 1
+    
+    return saved_count
+
+
+# =========================
+# Main Execution
+# =========================
+def main():
+    print("=" * 50)
+    print("🤖 ML Anomaly Detection (Random Forest)")
+    print("=" * 50)
+    
+    # Train model
+    print("\n📚 Training Random Forest model...")
+    model, scaler = train_model()
+    print("✅ Model trained successfully")
+    
+    # Fetch data
+    print(f"\n📊 Fetching data from last {WINDOW_MINUTES} minutes...")
+    df = fetch_detection_data()
+    
+    if df.empty:
+        print("ℹ️  No activity data found in the time window")
+        return
+    
+    print(f"✅ Found {len(df)} user(s) with activity")
+    
+    # Prepare features
+    features, roll_nos, client_ips = prepare_features(df)
+    
+    if features is None:
+        print("ℹ️  No valid data after feature preparation")
+        return
+    
+    # Predict
+    print(f"\n🔍 Analyzing {len(features)} record(s)...")
+    features_scaled = scaler.transform(features)
+    predictions = model.predict(features_scaled)
+    probabilities = model.predict_proba(features_scaled)[:, 1]
+    
+    # Show results
+    anomaly_count = sum(predictions)
+    print(f"\n📈 Results:")
+    print(f"   - Total users analyzed: {len(predictions)}")
+    print(f"   - Anomalies detected: {anomaly_count}")
+    
+    for i, (roll_no, pred, prob) in enumerate(zip(roll_nos, predictions, probabilities)):
+        status = "🔴 ANOMALY" if pred == 1 else "🟢 Normal"
+        print(f"   - {roll_no}: {status} (confidence: {prob:.1%})")
+        if pred == 1:
+            reason = generate_reason(features[i])
+            print(f"     Reason: {reason}")
+    
+    # Save to DB
+    if anomaly_count > 0:
+        saved = save_ml_anomalies(roll_nos, client_ips, predictions, probabilities, features)
+        print(f"\n💾 Saved {saved} anomaly record(s) to database")
+    
+    print("\n✅ Random Forest ML detection completed")
+
+
+if __name__ == "__main__":
+    main()
