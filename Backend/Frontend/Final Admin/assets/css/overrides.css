@@ -215,15 +215,16 @@ input:focus, textarea:focus, select:focus{
 .clients-table tbody tr:nth-child(even){ background:rgba(12,20,30,0.015); }
 
 /* Status badges */
-.status-active, .status-blocked{
+.status-active, .status-blocked, .status-online, .status-offline{
   display:inline-flex;
   align-items:center;
   gap:8px;
-  padding:6px 10px;
+  padding:6px 12px;
   border-radius:10px;
-  font-weight:700;
-  font-size:13px;
+  font-weight:600;
+  font-size:12px;
   white-space:nowrap;
+  max-width: 100%;
 }
 .status-active{
   color:var(--success);
@@ -232,15 +233,45 @@ input:focus, textarea:focus, select:focus{
 .status-active::before{
   content:"";
   width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--success);
+  flex-shrink: 0;
 }
 .status-blocked{
   color:var(--danger);
   background:rgba(231,76,60,0.08);
+  font-size:11px;
+  padding:6px 10px;
 }
 .status-blocked::before{
   content:"";
   width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--danger);
+  flex-shrink: 0;
 }
+.status-online{
+  color:#1e90ff;
+  background:rgba(30,144,255,0.08);
+}
+.status-online::before{
+  content:"";
+  width:8px;height:8px;border-radius:50%;display:inline-block;background:#1e90ff;
+  flex-shrink: 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+.status-offline{
+  color:#6c757d;
+  background:rgba(108,117,125,0.08);
+}
+.status-offline::before{
+  content:"";
+  width:8px;height:8px;border-radius:50%;display:inline-block;background:#6c757d;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+
 
 /* Action buttons group */
 .action-buttons{ text-align:right; width:100%; }

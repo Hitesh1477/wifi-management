@@ -54,6 +54,47 @@ def login():
     if not user:
         return jsonify({"status": "error", "msg": "Invalid credentials"}), 401
 
+    # ✅ Check if user is blocked
+    from db import db
+    blocked_users_col = db["blocked_users"]
+    block_doc = blocked_users_col.find_one({"roll_no": roll_no, "status": "blocked"})
+    
+    if block_doc:
+        ban_type = block_doc.get("ban_type", "temporary")
+        reason = block_doc.get("reason", "Violation of network policy")
+        
+        if ban_type == "permanent":
+            return jsonify({
+                "status": "error", 
+                "msg": f"Account permanently blocked. Reason: {reason}",
+                "blocked": True,
+                "ban_type": "permanent"
+            }), 403
+        else:
+            # Temporary ban - show expiry time
+            expires_at = block_doc.get("expires_at")
+            if expires_at:
+                import pytz
+                ist = pytz.timezone('Asia/Kolkata')
+                if hasattr(expires_at, 'replace'):
+                    expires_at_utc = expires_at.replace(tzinfo=pytz.utc)
+                    expires_at_ist = expires_at_utc.astimezone(ist)
+                    expiry_str = expires_at_ist.strftime('%I:%M %p, %d %b %Y')
+                    return jsonify({
+                        "status": "error",
+                        "msg": f"Account temporarily blocked until {expiry_str}. Reason: {reason}",
+                        "blocked": True,
+                        "ban_type": "temporary",
+                        "expires_at": expiry_str
+                    }), 403
+            
+            return jsonify({
+                "status": "error",
+                "msg": f"Account temporarily blocked. Reason: {reason}",
+                "blocked": True,
+                "ban_type": "temporary"
+            }), 403
+
     # ✅ Get client IP (use actual network IP if localhost)
     remote_ip = request.remote_addr
     if remote_ip in ("127.0.0.1", "::1", "localhost"):

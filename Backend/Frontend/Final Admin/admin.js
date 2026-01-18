@@ -245,17 +245,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (client.role === 'admin') return;
                 
                 const clientId = client._id || client.id;
-                const isBlocked = client.blocked === true;
                 const limit = client.bandwidth_limit || 'standard';
                 const isCustom = typeof limit === 'number';
                 const dataUsage = client.data_usage || '0';
                 const activity = client.activity || 'Idle';
+                
+                // Determine status display
+                let statusHtml = '<span class="status-offline">Offline</span>';
+                if (client.status) {
+                    if (client.status.includes('Blocked')) {
+                        statusHtml = `<span class="status-blocked">${client.status}</span>`;
+                    } else if (client.status === 'Online') {
+                        statusHtml = '<span class="status-online">Online</span>';
+                    } else if (client.status === 'Offline') {
+                        statusHtml = '<span class="status-offline">Offline</span>';
+                    } else if (client.status === 'Active') {
+                        statusHtml = '<span class="status-active">Active</span>';
+                    } else {
+                        statusHtml = `<span class="status-active">${client.status}</span>`;
+                    }
+                } else if (client.blocked) {
+                    statusHtml = '<span class="status-blocked">Blocked</span>';
+                }
                 
                 const row = document.createElement("tr");
                 row.innerHTML = `
                     <td>${client.roll_no || client.name || 'Unknown'}</td>
                     <td>${dataUsage} GB</td>
                     <td>${activity}</td>
+                    <td style="text-align: center;">${statusHtml}</td>
                     <td>
                         <div class="bandwidth-control-cell">
                             <select class="limit-select" data-id="${clientId}">
@@ -271,11 +289,6 @@ document.addEventListener("DOMContentLoaded", () => {
                                 <span>Mbps</span>
                             </span>
                         </div>
-                    </td>
-                    <td class="action-buttons">
-                        <button class="btn ${isBlocked ? 'btn-success' : 'btn-danger'}" onclick="toggleBlock('${clientId}', ${isBlocked})">
-                            ${isBlocked ? 'Unblock' : 'Block'}
-                        </button>
                     </td>
                 `;
                 bandwidthListBody.appendChild(row);
@@ -1108,12 +1121,31 @@ document.addEventListener("DOMContentLoaded", () => {
             tbody.innerHTML = '';
             clients.forEach(c => {
                 const tr = document.createElement('tr');
+                
+                // Determine status display
+                let statusHtml = '<span class="status-offline">Offline</span>';
+                if (c.status) {
+                    if (c.status.includes('Blocked')) {
+                        statusHtml = `<span class="status-blocked">${c.status}</span>`;
+                    } else if (c.status === 'Online') {
+                        statusHtml = '<span class="status-online">Online</span>';
+                    } else if (c.status === 'Offline') {
+                        statusHtml = '<span class="status-offline">Offline</span>';
+                    } else if (c.status === 'Active') {
+                        statusHtml = '<span class="status-active">Active</span>';
+                    } else {
+                        statusHtml = `<span class="status-active">${c.status}</span>`;
+                    }
+                } else if (c.blocked) {
+                    statusHtml = '<span class="status-blocked">Blocked</span>';
+                }
+                
                 tr.innerHTML = `
                     <td>${(c.roll_no || c.name || 'N/A')}</td>
-                    <td>${c.ip || 'N/A'}</td>
-                    <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                    <td>${c.ip_address || c.ip || 'N/A'}</td>
+                    <td>${c.data_usage || c.data ? (c.data_usage || c.data) + ' GB' : '0 GB'}</td>
                     <td>${c.activity || 'Idle'}</td>
-                    <td>${c.blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
+                    <td>${statusHtml}</td>
                     <td>
                         <button class="btn-edit" onclick="editClient('${c._id}')">Edit</button>
                         <button onclick="toggleBlock('${c._id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>

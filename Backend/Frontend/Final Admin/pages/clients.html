@@ -15,6 +15,15 @@
 
     <div class="table-container">
         <h3>All Connected Clients</h3>
+        <!-- Search Box -->
+        <div style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+            <input 
+                type="search" 
+                id="student-search" 
+                placeholder="🔍 Search by Student ID, IP, or Activity..."
+                style="width: 100%; max-width: 400px; padding: 10px 14px; border-radius: 8px; border: 1px solid #e6e9ed; font-size: 14px;"
+            >
+        </div>
         <div class="table-responsive">
             <table class="clients-table">
                 <thead>
@@ -223,8 +232,29 @@ document.getElementById('add-client-form')?.addEventListener('submit', async (e)
     }
 });
 
+
 // Load clients on page load
 document.addEventListener('DOMContentLoaded', loadClientsData);
 loadClientsData();
+
+// Search functionality
+document.getElementById('student-search')?.addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    const tbody = document.getElementById('client-list-body');
+    const rows = tbody?.querySelectorAll('tr') || [];
+    
+    rows.forEach(row => {
+        const student = row.children[0]?.textContent.toLowerCase() || '';
+        const ip = row.children[1]?.textContent.toLowerCase() || '';
+        const activity = row.children[3]?.textContent.toLowerCase() || '';
+        
+        const matches = student.includes(searchTerm) || 
+                       ip.includes(searchTerm) || 
+                       activity.includes(searchTerm);
+        
+        row.style.display = matches ? '' : 'none';
+    });
+});
+
 </script>
 

@@ -95,12 +95,83 @@ def admin_clients():
         clients_cursor = users_collection.find({"role": {"$ne": "admin"}}, {"password": 0})
         clients = []
         
-        # Get detections collection for activity lookup
+        # Get collections
         detections_col = db['detections'] if 'detections' in db.list_collection_names() else None
+        blocked_users_col = db['blocked_users'] if 'blocked_users' in db.list_collection_names() else None
+        active_sessions_col = db['active_sessions'] if 'active_sessions' in db.list_collection_names() else None
         
         for c in clients_cursor:
             c['_id'] = str(c.get('_id'))
             roll_no = c.get('roll_no')
+            
+            # Check if user is blocked in blocked_users collection
+            is_blocked = False
+            block_status = None
+            block_details = None
+            
+            if blocked_users_col is not None and roll_no:
+                block_doc = blocked_users_col.find_one({"roll_no": roll_no, "status": "blocked"})
+                if block_doc:
+                    is_blocked = True
+                    ban_type = block_doc.get("ban_type", "temporary")
+                    expires_at = block_doc.get("expires_at")
+                    
+                    if ban_type == "permanent":
+                        block_status = "Blocked (permanent)"
+                    elif expires_at:
+                        # Show expiry time for temporary bans
+                        import pytz
+                        ist = pytz.timezone('Asia/Kolkata')
+                        # Convert UTC to IST
+                        if hasattr(expires_at, 'replace'):
+                            expires_at_utc = expires_at.replace(tzinfo=pytz.utc)
+                            expires_at_ist = expires_at_utc.astimezone(ist)
+                            expiry_str = expires_at_ist.strftime('%I:%M %p, %d %b')
+                            block_status = f"Blocked until {expiry_str}"
+                        else:
+                            block_status = f"Blocked (temporary)"
+                    else:
+                        block_status = f"Blocked (temporary)"
+                    
+                    block_details = {
+                        "reason": block_doc.get("reason", "No reason provided"),
+                        "confidence": block_doc.get("confidence", 0),
+                        "blocked_at": block_doc.get("blocked_at")
+                    }
+            
+            # Determine status
+            if is_blocked:
+                # User is blocked
+                c['status'] = block_status
+                c['blocked'] = True
+                if block_details:
+                    c['block_details'] = block_details
+            else:
+                # Check if user has active session
+                has_active_session = False
+                if active_sessions_col is not None and roll_no:
+                    session = active_sessions_col.find_one({"roll_no": roll_no, "status": "active"})
+                    if session:
+                        has_active_session = True
+                        c['ip_address'] = session.get('client_ip', 'N/A')
+                
+                if has_active_session:
+                    c['status'] = "Online"
+                else:
+                    c['status'] = "Offline"
+                
+                c['blocked'] = False
+            
+            # Get IP from active session if not already set
+            if not c.get('ip_address'):
+                if active_sessions_col is not None and roll_no:
+                    session = active_sessions_col.find_one({"roll_no": roll_no, "status": "active"})
+                    if session:
+                        c['ip_address'] = session.get('client_ip', 'N/A')
+                    else:
+                        c['ip_address'] = c.get('ip_address', 'N/A')
+                else:
+                    c['ip_address'] = c.get('ip_address', 'N/A')
             
             # Get latest activity from detections
             if detections_col is not None and roll_no:
@@ -173,6 +244,7 @@ def admin_update_client(id):
     if not doc:
         return jsonify({"message": "Not found"}), 404
     oid = doc.get('_id')
+    roll_no = doc.get('roll_no')
     data = request.get_json() or {}
 
     updates = {}
@@ -187,8 +259,33 @@ def admin_update_client(id):
     if 'password' in data and isinstance(data['password'], str) and data['password'].strip():
         updates['password'] = generate_password_hash(data['password'].strip())
 
+    # Handle blocking/unblocking - write to blocked_users collection
     if 'blocked' in data:
-        updates['blocked'] = bool(data['blocked'])
+        should_block = bool(data['blocked'])
+        updates['blocked'] = should_block
+        
+        blocked_users_col = db['blocked_users']
+        
+        if should_block:
+            # Block the user - add to blocked_users collection
+            blocked_users_col.update_one(
+                {"roll_no": roll_no},
+                {
+                    "$set": {
+                        "roll_no": roll_no,
+                        "ban_type": "permanent",  # Admin blocks are permanent by default
+                        "confidence": 1.0,
+                        "reason": "Manually blocked by admin",
+                        "blocked_at": datetime.datetime.utcnow(),
+                        "expires_at": None,
+                        "status": "blocked"
+                    }
+                },
+                upsert=True
+            )
+        else:
+            # Unblock the user - remove from blocked_users collection
+            blocked_users_col.delete_one({"roll_no": roll_no})
 
     if 'activity' in data and isinstance(data['activity'], str):
         updates['activity'] = data['activity']
@@ -204,6 +301,7 @@ def admin_update_client(id):
     if res.matched_count == 0:
         return jsonify({"message": "Not found"}), 404
     return jsonify({"message": "Client updated"}), 200
+
 
 @admin_routes.route('/admin/logs', methods=['GET'])
 @admin_required
