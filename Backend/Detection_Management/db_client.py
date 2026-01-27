@@ -8,6 +8,7 @@ try:
     client.admin.command('ping')
     db = client["studentapp"]
     detections = db["detections"]
+    web_filter = db["web_filter"]
     print("✅ MongoDB connection established")
 except (ConnectionFailure, ServerSelectionTimeoutError) as e:
     print(f"❌ MongoDB connection failed: {e}")

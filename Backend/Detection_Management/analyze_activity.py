@@ -5,6 +5,7 @@ from model import classify
 from domain_map import get_app_name
 from save_detections_batch import save_detections_batch
 from session_lookup import get_roll_no_from_ip
+from db_client import web_filter
 
 def analyze_packet(packet):
     """
@@ -74,6 +75,42 @@ def analyze_rows(rows):
                 app_name = get_app_name(domain)
                 category = classify(domain)
 
+                # ✅ Check for blocking
+                is_blocked = False
+                block_reason = None
+                
+                try:
+                    config = web_filter.find_one({"type": "config"})
+                    if config:
+                        # 1. Check Manual Blocks
+                        if any(b in domain for b in config.get("manual_blocks", [])):
+                            is_blocked = True
+                            block_reason = "Manually Blocked Site"
+
+                        # 2. Check Categories
+                        cats = config.get("categories", {})
+                        
+                        # Map model categories to config categories
+                        cat_map = {
+                            "video": "Streaming",
+                            "social": "Social Media",
+                            "gaming": "Gaming",
+                            "messaging": "Messaging"
+                        }
+                        
+                        config_cat = cat_map.get(category)
+                        if config_cat and cats.get(config_cat, {}).get("active"):
+                            is_blocked = True
+                            block_reason = f"Blocked Category: {config_cat}"
+                except Exception as e:
+                    print(f"⚠️ Error checking web filter: {e}")
+
+                final_reason = f"{app_name} activity"
+                score = 1
+                if is_blocked:
+                    final_reason = f"BLOCKED: {block_reason} ({app_name})"
+                    score = 5 # Higher score for violations
+
                 detections.append({
                     "roll_no": roll_no,  # ✅ Uses actual student roll number
                     "client_ip": client_ip,
@@ -81,8 +118,8 @@ def analyze_rows(rows):
                     "app_name": app_name,
                     "category": category,
                     "timestamp": r.get("timestamp", datetime.utcnow()),
-                    "reason": f"{app_name} activity",
-                    "score": 1,
+                    "reason": final_reason,
+                    "score": score,
                     "details": f"domain={domain}"
                 })
             except Exception as e:

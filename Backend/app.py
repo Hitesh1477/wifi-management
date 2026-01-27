@@ -9,6 +9,7 @@ from db import users_collection, admins_collection, sessions_collection
 # ✅ Import Blueprints
 from admin_routes import admin_routes
 from auth_routes import auth_routes
+from filtering_routes import filtering_blueprint
 
 # --------------------------------------------------
 # ✅ APP CONFIG
@@ -29,6 +30,7 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "Frontend")
 # --------------------------------------------------
 app.register_blueprint(auth_routes, url_prefix="/api/auth")
 app.register_blueprint(admin_routes, url_prefix="/api")  # Routes already have /admin prefix
+app.register_blueprint(filtering_blueprint, url_prefix="/api/admin")
 
 # --------------------------------------------------
 # ✅ ALLOW ONLY LOCAL NETWORK (Wi-Fi)
