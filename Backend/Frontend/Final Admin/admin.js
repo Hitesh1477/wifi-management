@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
-
+    
     // --- Mock Database (Simulation) ---
     const db = {
         clients: [
@@ -11,25 +11,25 @@ document.addEventListener("DOMContentLoaded", () => {
             "unblock-proxy.net"
         ],
         siteCategories: {
-            "Gaming": {
-                active: true,
-                sites: ["steampowered.com", "twitch.tv", "roblox.com", "discord.gg", "epicgames.com", "ea.com", "playvalorant.com", "minecraft.net", "battle.net", "ubisoft.com"]
+            "Gaming": { 
+                active: true, 
+                sites: ["steampowered.com", "twitch.tv", "roblox.com", "discord.gg", "epicgames.com", "ea.com", "playvalorant.com", "minecraft.net", "battle.net", "ubisoft.com"] 
             },
-            "Social Media": {
-                active: false,
-                sites: ["tiktok.com", "instagram.com", "facebook.com", "twitter.com", "reddit.com", "snapchat.com", "pinterest.com"]
+            "Social Media": { 
+                active: false, 
+                sites: ["tiktok.com", "instagram.com", "facebook.com", "twitter.com", "reddit.com", "snapchat.com", "pinterest.com"] 
             },
-            "Streaming": {
-                active: false,
-                sites: ["netflix.com", "hulu.com", "disneyplus.com", "hbomax.com", "primevideo.com", "spotify.com", "peacocktv.com"]
+            "Streaming": { 
+                active: false, 
+                sites: ["netflix.com", "hulu.com", "disneyplus.com", "hbomax.com", "primevideo.com", "spotify.com", "peacocktv.com"] 
             },
-            "File Sharing": {
-                active: true,
-                sites: ["thepiratebay.org", "1337x.to", "megaupload.com", "wetransfer.com", "mediafire.com", "rarbg.to"]
+            "File Sharing": { 
+                active: true, 
+                sites: ["thepiratebay.org", "1337x.to", "megaupload.com", "wetransfer.com", "mediafire.com", "rarbg.to"] 
             },
-            "Proxy/VPN": {
-                active: true,
-                sites: ["nordvpn.com", "expressvpn.com", "hidemyass.com", "proxysite.com", "cyberghostvpn.com", "surfshark.com", "privateinternetaccess.com", "protonvpn.me", "tunnelbear.com"]
+            "Proxy/VPN": { 
+                active: true, 
+                sites: ["nordvpn.com", "expressvpn.com", "hidemyass.com", "proxysite.com", "cyberghostvpn.com", "surfshark.com", "privateinternetaccess.com", "protonvpn.me", "tunnelbear.com"] 
             },
             // "Adult Content": { 
             //     active: true, 
@@ -39,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
         bandwidthLimits: {
             4: "low",
             6: "low",
-            5: 15
+            5: 15 
         },
         logs: [
             { time: '11:25:01 AM', level: 'warn', user: '23203A0025', action: 'High bandwidth detected (25.4 GB)' },
@@ -75,14 +75,14 @@ document.addEventListener("DOMContentLoaded", () => {
     async function loadPage(pageName) {
         if (trafficInterval) clearInterval(trafficInterval);
         if (myTrafficChart) myTrafficChart.destroy();
-
+        
         try {
             contentArea.innerHTML = `<div class="loading-spinner"></div>`;
             const response = await fetch(`pages/${pageName}.html`);
             if (!response.ok) throw new Error(`Could not load page: ${response.status}`);
             const html = await response.text();
             contentArea.innerHTML = html;
-
+            
             if (pageName === 'dashboard') initDashboard();
             else if (pageName === 'clients') initClients();
             else if (pageName === 'web_filtering') initWebFiltering();
@@ -100,7 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- Page Initializers (These run after a page is loaded) ---
-
+    
     function initDashboard() {
         const clientCountElement = document.getElementById("client-count");
         if (clientCountElement) {
@@ -114,9 +114,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (threatCountElement) {
             threatCountElement.textContent = db.threatsBlocked;
         }
-
+        
         const logBody = document.getElementById("event-log-body");
-        if (logBody) {
+        if(logBody) {
             logBody.innerHTML = "";
             db.logs.slice(0, 5).forEach(log => {
                 const tr = document.createElement('tr');
@@ -144,7 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 myTrafficChart.data.datasets[1].data.shift();
                 myTrafficChart.update();
             }
-
+            
             db.totalData += Math.random() * 0.5;
             if (dataCountElement) {
                 dataCountElement.textContent = `${db.totalData.toFixed(1)} GB`;
@@ -196,177 +196,197 @@ document.addEventListener("DOMContentLoaded", () => {
     function initWebFiltering() {
         const blockedSitesList = document.getElementById("blocked-sites-list");
         if (!blockedSitesList) return;
-
-        blockedSitesList.innerHTML = "<li>Loading...</li>";
+        blockedSitesList.innerHTML = "";
+        db.blockedSites.forEach(url => addBlockedSiteToDOM(url, false));
+        Object.keys(db.siteCategories).forEach(key => {
+            if (db.siteCategories[key].active) {
+                db.siteCategories[key].sites.forEach(site => {
+                    if (!db.blockedSites.includes(site)) addBlockedSiteToDOM(site, true);
+                });
+            }
+        });
         const categories = document.getElementById("filter-categories");
-        categories.innerHTML = "Loading...";
-
-        const token = localStorage.getItem('admin_token');
-        if (!token) return;
-
-        fetch('/api/admin/filtering', { headers: { 'Authorization': 'Bearer ' + token } })
-            .then(res => res.json())
-            .then(data => {
-                // 1. Manual Blocks
-                db.blockedSites = data.manual_blocks || [];
-                blockedSitesList.innerHTML = "";
-                db.blockedSites.forEach(url => addBlockedSiteToDOM(url, false));
-
-                // 2. Categories
-                db.siteCategories = data.categories || {};
-
-                // Show category sites if active (optional visualization)
-                Object.keys(db.siteCategories).forEach(key => {
-                    if (db.siteCategories[key].active) {
-                        db.siteCategories[key].sites.forEach(site => {
-                            if (!db.blockedSites.includes(site)) addBlockedSiteToDOM(site, true);
-                        });
-                    }
-                });
-
-                categories.innerHTML = "";
-                Object.keys(db.siteCategories).forEach(key => {
-                    const btn = document.createElement("button");
-                    btn.className = `filter-toggle ${db.siteCategories[key].active ? 'active' : ''}`;
-                    btn.textContent = key;
-                    btn.dataset.category = key;
-                    categories.appendChild(btn);
-                });
-            })
-            .catch(err => {
-                console.error("Error loading filtering:", err);
-                blockedSitesList.innerHTML = "<li>Error loading data</li>";
-            });
+        categories.innerHTML = "";
+        Object.keys(db.siteCategories).forEach(key => {
+            const btn = document.createElement("button");
+            btn.className = `filter-toggle ${db.siteCategories[key].active ? 'active' : ''}`;
+            btn.textContent = key;
+            btn.dataset.category = key;
+            categories.appendChild(btn);
+        });
     }
 
     function initBandwidth() {
         const bandwidthListBody = document.getElementById("bandwidth-list-body");
         if (!bandwidthListBody) return;
-
+        
         // Show loading
         bandwidthListBody.innerHTML = "<tr><td colspan='5'>Loading clients...</td></tr>";
-
+        
         const token = localStorage.getItem('admin_token');
         if (!token) {
             bandwidthListBody.innerHTML = "<tr><td colspan='5'>Please login as admin</td></tr>";
             return;
         }
-
+        
         // Fetch clients from API
         fetch('/api/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
-            .then(res => res.json())
-            .then(data => {
-                const clients = data.clients || [];
-                bandwidthListBody.innerHTML = "";
-
-                if (clients.length === 0) {
-                    bandwidthListBody.innerHTML = "<tr><td colspan='5'>No students registered yet</td></tr>";
-                    return;
-                }
-
-                clients.forEach(client => {
-                    if (client.role === 'admin') return;
-
-                    const clientId = client._id || client.id;
-                    const limit = client.bandwidth_limit || 'standard';
-                    const isCustom = typeof limit === 'number';
-                    const dataUsage = client.data_usage || '0';
-                    const activity = client.activity || 'Idle';
-
-                    // Determine status display
-                    let statusHtml = '<span class="status-offline">Offline</span>';
-                    if (client.status) {
-                        if (client.status.includes('Blocked')) {
-                            statusHtml = `<span class="status-blocked">${client.status}</span>`;
-                        } else if (client.status === 'Online') {
-                            statusHtml = '<span class="status-online">Online</span>';
-                        } else if (client.status === 'Offline') {
-                            statusHtml = '<span class="status-offline">Offline</span>';
-                        } else if (client.status === 'Active') {
-                            statusHtml = '<span class="status-active">Active</span>';
-                        } else {
-                            statusHtml = `<span class="status-active">${client.status}</span>`;
-                        }
-                    } else if (client.blocked) {
-                        statusHtml = '<span class="status-blocked">Blocked</span>';
+        .then(res => res.json())
+        .then(data => {
+            const clients = data.clients || [];
+            bandwidthListBody.innerHTML = "";
+            
+            if (clients.length === 0) {
+                bandwidthListBody.innerHTML = "<tr><td colspan='5'>No students registered yet</td></tr>";
+                return;
+            }
+            
+            clients.forEach(client => {
+                if (client.role === 'admin') return;
+                
+                const clientId = client._id || client.id;
+                const limit = client.bandwidth_limit || 'standard';
+                const isCustom = typeof limit === 'number';
+                const dataUsage = client.data_usage || '0';
+                const activity = client.activity || 'Idle';
+                
+                // Determine status display
+                let statusHtml = '<span class="status-offline">Offline</span>';
+                if (client.status) {
+                    if (client.status.includes('Blocked')) {
+                        statusHtml = `<span class="status-blocked">${client.status}</span>`;
+                    } else if (client.status === 'Online') {
+                        statusHtml = '<span class="status-online">Online</span>';
+                    } else if (client.status === 'Offline') {
+                        statusHtml = '<span class="status-offline">Offline</span>';
+                    } else if (client.status === 'Active') {
+                        statusHtml = '<span class="status-active">Active</span>';
+                    } else {
+                        statusHtml = `<span class="status-active">${client.status}</span>`;
                     }
-
-                    const row = document.createElement("tr");
-                    row.innerHTML = `
+                } else if (client.blocked) {
+                    statusHtml = '<span class="status-blocked">Blocked</span>';
+                }
+                
+                const row = document.createElement("tr");
+                
+                // Determine bandwidth display for AUTO mode
+                let bandwidthDisplayHtml = '';
+                if (limit === 'auto') {
+                    const autoAssigned = client.bandwidth_auto_assigned || 'medium';
+                    const autoConfidence = client.bandwidth_auto_confidence || 0;
+                    const confidencePercent = (autoConfidence * 100).toFixed(0);
+                    bandwidthDisplayHtml = `
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="low">LOW (10 Mbps)</option>
+                                <option value="medium">MEDIUM (25 Mbps)</option>
+                                <option value="high">HIGH (100 Mbps)</option>
+                                <option value="manual">MANUAL (Custom)</option>
+                                <option value="auto" selected>AUTO (ML-Based)</option>
+                            </select>
+                            <div class="auto-bw-info" style="margin-top: 5px; font-size: 0.85em; color: #666;">
+                                Currently: <strong>${autoAssigned.toUpperCase()}</strong> (${confidencePercent}% confidence)
+                            </div>
+                        </div>
+                    `;
+                } else if (limit === 'manual') {
+                    const customValue = client.bandwidth_custom_value || 50;
+                    bandwidthDisplayHtml = `
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="low">LOW (10 Mbps)</option>
+                                <option value="medium">MEDIUM (25 Mbps)</option>
+                                <option value="high">HIGH (100 Mbps)</option>
+                                <option value="manual" selected>MANUAL (Custom)</option>
+                                <option value="auto">AUTO (ML-Based)</option>
+                            </select>
+                            <span class="custom-bw-group" style="margin-left: 10px;">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${customValue}" min="1" style="width: 60px;">
+                                <span>Mbps</span>
+                            </span>
+                        </div>
+                    `;
+                } else {
+                    // Normal preset tiers: low, medium, high
+                    const normalizedLimit = limit || 'medium';
+                    bandwidthDisplayHtml = `
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="low" ${normalizedLimit === 'low' ? 'selected' : ''}>LOW (10 Mbps)</option>
+                                <option value="medium" ${normalizedLimit === 'medium' ? 'selected' : ''}>MEDIUM (25 Mbps)</option>
+                                <option value="high" ${normalizedLimit === 'high' ? 'selected' : ''}>HIGH (100 Mbps)</option>
+                                <option value="manual">MANUAL (Custom)</option>
+                                <option value="auto">AUTO (ML-Based)</option>
+                            </select>
+                            <span class="custom-bw-group hidden">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="50" min="1" style="width: 60px;">
+                                <span>Mbps</span>
+                            </span>
+                        </div>
+                    `;
+                }
+                
+                row.innerHTML = `
                     <td>${client.roll_no || client.name || 'Unknown'}</td>
                     <td>${dataUsage} GB</td>
                     <td>${activity}</td>
                     <td style="text-align: center;">${statusHtml}</td>
-                    <td>
-                        <div class="bandwidth-control-cell">
-                            <select class="limit-select" data-id="${clientId}">
-                                <option value="vlow" ${limit === 'vlow' ? 'selected' : ''}>Very Low (2 Mbps)</option>
-                                <option value="low" ${limit === 'low' ? 'selected' : ''}>Low (10 Mbps)</option>
-                                <option value="standard" ${!limit || limit === 'standard' ? 'selected' : ''}>Standard (25 Mbps)</option>
-                                <option value="high" ${limit === 'high' ? 'selected' : ''}>High (100 Mbps)</option>
-                                <option value="unlimited" ${limit === 'unlimited' ? 'selected' : ''}>Unlimited</option>
-                                <option value="custom" ${isCustom ? 'selected' : ''}>Manual...</option>
-                            </select>
-                            <span class="custom-bw-group ${isCustom ? '' : 'hidden'}">
-                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${isCustom ? limit : '50'}" min="1">
-                                <span>Mbps</span>
-                            </span>
-                        </div>
-                    </td>
+                    <td>${bandwidthDisplayHtml}</td>
                 `;
-                    bandwidthListBody.appendChild(row);
-                });
-            })
-            .catch(err => {
-                console.error('Error fetching clients:', err);
-                bandwidthListBody.innerHTML = "<tr><td colspan='5'>Error loading clients</td></tr>";
+                bandwidthListBody.appendChild(row);
             });
+        })
+        .catch(err => {
+            console.error('Error fetching clients:', err);
+            bandwidthListBody.innerHTML = "<tr><td colspan='5'>Error loading clients</td></tr>";
+        });
     }
 
     function initLogs() {
         const logBody = document.getElementById("log-body");
         if (!logBody) return;
-
+        
         // Clear existing logs and show loading
         logBody.innerHTML = "<tr><td colspan='4'>Loading logs...</td></tr>";
-
+        
         // Fetch real logs from API
         const token = localStorage.getItem('admin_token');
         if (!token) {
             logBody.innerHTML = "<tr><td colspan='4'>Please login as admin to view logs</td></tr>";
             return;
         }
-
-        fetch('/api/admin/logs', {
-            headers: { 'Authorization': 'Bearer ' + token }
+        
+        fetch('/api/admin/logs', { 
+            headers: { 'Authorization': 'Bearer ' + token } 
         })
-            .then(res => res.json())
-            .then(data => {
-                const logs = data.logs || [];
-                logBody.innerHTML = "";
-
-                if (logs.length === 0) {
-                    logBody.innerHTML = "<tr><td colspan='4'>No network activity logs found. Start monitoring to capture activity.</td></tr>";
-                    return;
-                }
-
-                logs.forEach(log => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
+        .then(res => res.json())
+        .then(data => {
+            const logs = data.logs || [];
+            logBody.innerHTML = "";
+            
+            if (logs.length === 0) {
+                logBody.innerHTML = "<tr><td colspan='4'>No network activity logs found. Start monitoring to capture activity.</td></tr>";
+                return;
+            }
+            
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
                     <td>${log.time || 'N/A'}</td>
                     <td><span class="log-level-${log.level || 'info'}">${(log.level || 'info').toUpperCase()}</span></td>
                     <td>${log.user || 'Unknown'} / ${log.ip || 'N/A'}</td>
                     <td>${log.action || 'Unknown activity'}</td>
                 `;
-                    logBody.appendChild(tr);
-                });
-            })
-            .catch(err => {
-                console.error('Error fetching logs:', err);
-                logBody.innerHTML = "<tr><td colspan='4'>Error loading logs. Please try again.</td></tr>";
+                logBody.appendChild(tr);
             });
+        })
+        .catch(err => {
+            console.error('Error fetching logs:', err);
+            logBody.innerHTML = "<tr><td colspan='4'>Error loading logs. Please try again.</td></tr>";
+        });
     }
-
+    
     function initSettings() {
         // Placeholder
     }
@@ -387,7 +407,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function initGuestNetwork() {
         const voucherList = document.getElementById("guest-voucher-list");
         if (!voucherList) return;
-
+        
         const guestToggle = document.getElementById('guest-toggle-cb');
         const guestStatusText = document.getElementById('guest-status-text');
         if (guestToggle && guestStatusText) {
@@ -422,17 +442,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     // --- Global Event Listeners (using delegation on document.body) ---
-
+    
     // --- 1. CLICK Listener ---
     document.body.addEventListener('click', (e) => {
-
+        
         if (e.target.closest('#profile-menu-toggle')) {
             profileDropdown.classList.toggle('active');
             notificationTray.classList.remove('active');
         } else if (!e.target.closest('.profile-dropdown')) {
             profileDropdown.classList.remove('active');
         }
-
+        
         if (e.target.closest('#notification-bell')) {
             notificationTray.classList.toggle('active');
             notificationBadge.classList.add('hidden');
@@ -460,7 +480,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (typeof window.toggleBlock === 'function') return;
             handleBlockUnblock(e.target);
         }
-
+        
         if (e.target.classList.contains('btn-edit')) {
             // If a global editClient is defined (inline onclick), skip the delegate
             if (typeof window.editClient === 'function') return;
@@ -469,7 +489,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!id) return;
             openEditModal(id);
         }
-
+        
         if (e.target.id === 'edit-modal-close-btn' || e.target.id === 'edit-modal-overlay') {
             closeEditModal();
         }
@@ -477,7 +497,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.target.closest('.btn-remove')) {
             handleRemoveSite(e.target);
         }
-
+        
         if (e.target.classList.contains('filter-toggle')) {
             handleCategoryToggle(e.target);
         }
@@ -485,12 +505,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.target.id === 'reboot-button') {
             handleReboot("Main Router");
         }
-
+        
         if (e.target.classList.contains('reboot-ap-btn')) {
             const location = e.target.dataset.location;
             handleReboot(location);
         }
-
+        
         if (e.target.classList.contains('btn-status-unused')) {
             const id = parseInt(e.target.dataset.id);
             const voucher = db.guestVouchers.find(v => v.id === id);
@@ -500,7 +520,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 initGuestNetwork();
             }
         }
-
+        
         if (e.target.closest('.btn-delete-voucher')) {
             const id = parseInt(e.target.closest('.btn-delete-voucher').dataset.id);
             const voucher = db.guestVouchers.find(v => v.id === id);
@@ -510,7 +530,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 initGuestNetwork();
             }
         }
-
+        
         // --- MODIFIED: This is the new Download Button handler ---
         if (e.target.classList.contains('btn-download-report')) {
             handleDownloadReport(e.target);
@@ -540,32 +560,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
             }).catch(err => { console.error(err); alert('Request error'); });
         }
-
+        
         if (e.target.id === 'website-block-form') {
             e.preventDefault();
             const websiteInput = document.getElementById("website-input");
             const url = websiteInput.value.trim();
-            const token = localStorage.getItem('admin_token');
-
-            if (url && token) {
-                fetch('/api/admin/filtering/sites', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ url })
-                })
-                    .then(async res => {
-                        const data = await res.json();
-                        if (res.ok) {
-                            addLog('warn', 'ADMIN', `Manually blocked site: ${url}`);
-                            websiteInput.value = "";
-                            initWebFiltering(); // Reload to show update
-                        } else if (res.status === 409) {
-                            alert('This site is already in the manual block list.');
-                        } else {
-                            alert(data.message || 'Error blocking site');
-                        }
-                    })
-                    .catch(err => console.error(err));
+            if (url && !db.blockedSites.includes(url)) {
+                db.blockedSites.unshift(url);
+                addLog('warn', 'ADMIN', `Manually blocked site: ${url}`);
+                addBlockedSiteToDOM(url, false, true);
+                websiteInput.value = "";
+            } else if (db.blockedSites.includes(url)) {
+                alert('This site is already in the manual block list.');
             }
         }
 
@@ -574,12 +580,12 @@ document.addEventListener("DOMContentLoaded", () => {
             addLog('info', 'ADMIN', 'Network settings saved');
             alert('Network settings saved successfully! (Demo)');
         }
-
+        
         if (e.target.id === 'edit-client-form') {
             e.preventDefault();
             handleEditClient();
         }
-
+        
         if (e.target.id === 'create-voucher-form') {
             e.preventDefault();
             const code = document.getElementById('voucher-code-input').value;
@@ -595,63 +601,63 @@ document.addEventListener("DOMContentLoaded", () => {
                 alert('Guest voucher created successfully!');
             }
         }
-
+        
         if (e.target.id === 'reporting-form') {
             e.preventDefault();
             const type = document.getElementById('report-type').value;
             const range = document.getElementById('report-range').value;
             const format = document.getElementById('report-format').value;
-
+            
             // Show loading state
             const resultsArea = document.getElementById('report-results-area');
             if (resultsArea) {
                 resultsArea.innerHTML = '<div class="card"><p>Generating report...</p></div>';
             }
-
+            
             // Fetch real report data from API
             const token = localStorage.getItem('admin_token');
             if (!token) {
                 alert('Please login as admin');
                 return;
             }
-
+            
             fetch('/api/admin/reports', {
                 method: 'POST',
-                headers: {
+                headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + token
+                    'Authorization': 'Bearer ' + token 
                 },
                 body: JSON.stringify({ type, range })
             })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        resultsArea.innerHTML = `<div class="card"><p>Error: ${data.error}</p></div>`;
-                        return;
-                    }
-                    const reportName = data.title || `${range} ${type} Report`;
-                    renderReport(reportName, data.headers || [], data.data || [], format);
-                    addLog('info', 'ADMIN', `Generated report: ${reportName}`);
-                })
-                .catch(err => {
-                    console.error('Report error:', err);
-                    if (resultsArea) {
-                        resultsArea.innerHTML = '<div class="card"><p>Error generating report. Please try again.</p></div>';
-                    }
-                });
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    resultsArea.innerHTML = `<div class="card"><p>Error: ${data.error}</p></div>`;
+                    return;
+                }
+                const reportName = data.title || `${range} ${type} Report`;
+                renderReport(reportName, data.headers || [], data.data || [], format);
+                addLog('info', 'ADMIN', `Generated report: ${reportName}`);
+            })
+            .catch(err => {
+                console.error('Report error:', err);
+                if (resultsArea) {
+                    resultsArea.innerHTML = '<div class="card"><p>Error generating report. Please try again.</p></div>';
+                }
+            });
         }
     });
-
+    
     // --- 3. CHANGE Listener ---
     document.body.addEventListener('change', (e) => {
         if (e.target.classList.contains('limit-select')) {
             handleBandwidthChange(e.target);
         }
-
+        
         if (e.target.id === 'guest-toggle-cb') {
             handleGuestToggle(e.target);
         }
-
+        
         if (e.target.id === 'report-range') {
             handleReportRangeChange(e.target);
         }
@@ -663,7 +669,7 @@ document.addEventListener("DOMContentLoaded", () => {
             handleCustomBandwidthInput(e.target);
         }
     });
-
+    
     // --- Event Handler Functions ---
 
     function handleBlockUnblock(button) {
@@ -674,7 +680,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (confirm(`Are you sure you want to unblock ${client.studentId} (${client.device})?`)) {
                 client.blocked = false;
                 addLog('info', 'ADMIN', `Unblocked user ${client.studentId}`);
-                if (document.getElementById('clients-page')) initClients();
+                if (document.getElementById('clients-page')) initClients(); 
                 if (document.getElementById('bandwidth-page')) initBandwidth();
                 initDashboard();
             }
@@ -688,7 +694,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
     }
-
+    
     function handleEditClient() {
         const id = document.getElementById('edit-client-id').value;
         const roll_no = document.getElementById('edit-client-id-text').value.trim();
@@ -708,7 +714,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
         }).catch(err => { console.error(err); alert('Request error'); });
     }
-
+    
     async function fetchClientById(id) {
         const token = localStorage.getItem('admin_token');
         if (!token) return null;
@@ -718,14 +724,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await resOne.json();
                 return data.client || data;
             }
-        } catch { }
+        } catch {}
         try {
             const res = await fetch('/api/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } });
             if (res.ok) {
                 const { clients } = await res.json();
                 return (clients || []).find(x => String(x._id || x.id) === String(id)) || null;
             }
-        } catch { }
+        } catch {}
         return null;
     }
 
@@ -746,7 +752,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.openEditModal = openEditModal;
 
     // expose block/unblock globally for inline onclicks and call backend
-    window.toggleBlock = function (id, isBlocked) {
+    window.toggleBlock = function(id, isBlocked) {
         const token = localStorage.getItem('admin_token');
         if (!token) return alert('Please log in as admin');
         fetch(`/api/admin/clients/${id}`, {
@@ -758,7 +764,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
         }).catch(err => { console.error(err); alert('Request error'); });
     };
-
+    
     function closeEditModal() {
         modalOverlay.classList.add('hidden');
     }
@@ -766,61 +772,29 @@ document.addEventListener("DOMContentLoaded", () => {
     function handleRemoveSite(button) {
         const li = button.closest("li");
         const url = li.querySelector("span").textContent;
-        const token = localStorage.getItem('admin_token');
-
+        let index = db.blockedSites.indexOf(url);
+        if (index > -1) db.blockedSites.splice(index, 1);
         let isInCategory = false;
-        if (db.siteCategories) {
-            Object.keys(db.siteCategories).forEach(key => {
-                if (db.siteCategories[key].active && db.siteCategories[key].sites.includes(url)) isInCategory = true;
-            });
-        }
-
-        if (isInCategory) {
+        Object.keys(db.siteCategories).forEach(key => {
+            if (db.siteCategories[key].active && db.siteCategories[key].sites.includes(url)) isInCategory = true;
+        });
+        if(isInCategory) {
             alert(`Cannot manually remove ${url}. It is part of an active blocked category. Disable the category first.`);
             return;
         }
-
-        if (token) {
-            fetch('/api/admin/filtering/sites', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ url })
-            })
-                .then(res => {
-                    if (res.ok) {
-                        addLog('info', 'ADMIN', `Removed ${url} from block list`);
-                        initWebFiltering(); // Reload
-                    } else {
-                        alert('Failed to remove block');
-                    }
-                })
-                .catch(err => console.error(err));
-        }
+        addLog('info', 'ADMIN', `Removed ${url} from block list`);
+        li.remove();
     }
-
+    
     function handleCategoryToggle(button) {
         const category = button.dataset.category;
-        const token = localStorage.getItem('admin_token');
-
-        if (token) {
-            fetch('/api/admin/filtering/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ category })
-            })
-                .then(async res => {
-                    const data = await res.json();
-                    if (res.ok) {
-                        if (data.active) {
-                            addLog('warn', 'ADMIN', `Enabled category block: ${category}`);
-                        } else {
-                            addLog('info', 'ADMIN', `Disabled category block: ${category}`);
-                        }
-                        initWebFiltering(); // Reload
-                    }
-                })
-                .catch(err => console.error(err));
+        db.siteCategories[category].active = !db.siteCategories[category].active;
+        if (db.siteCategories[category].active) {
+            addLog('warn', 'ADMIN', `Enabled category block: ${category}`);
+        } else {
+            addLog('info', 'ADMIN', `Disabled category block: ${category}`);
         }
+        initWebFiltering();
     }
 
     function handleReboot(location) {
@@ -833,44 +807,124 @@ document.addEventListener("DOMContentLoaded", () => {
     function handleBandwidthChange(selectElement) {
         const clientId = selectElement.dataset.id;
         const limit = selectElement.value;
-        const customInputSpan = selectElement.closest('.bandwidth-control-cell').querySelector('.custom-bw-group');
-
-        if (limit === 'custom') {
-            customInputSpan.classList.remove('hidden');
-            const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10);
-            saveBandwidthLimit(clientId, customValue);
-        } else {
-            customInputSpan.classList.add('hidden');
-            saveBandwidthLimit(clientId, limit);
-        }
-    }
-
-    // Save bandwidth limit to database
-    function saveBandwidthLimit(clientId, limit) {
-        const token = localStorage.getItem('admin_token');
-        if (!token) return alert('Please login as admin');
-
-        fetch(`/api/admin/clients/${clientId}`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
-            body: JSON.stringify({ bandwidth_limit: limit })
-        })
-            .then(res => {
-                if (res.ok) {
-                    console.log(`✅ Bandwidth limit saved: ${limit}`);
-                    addLog('info', 'ADMIN', `Set bandwidth limit to ${limit}`);
+        const bandwidthCell = selectElement.closest('.bandwidth-control-cell');
+        const customInputSpan = bandwidthCell.querySelector('.custom-bw-group');
+        const autoInfoDiv = bandwidthCell.querySelector('.auto-bw-info');
+        
+        // Handle MANUAL mode
+        if (limit === 'manual') {
+            // Show custom input field
+            if (customInputSpan) {
+                customInputSpan.classList.remove('hidden');
+            }
+            // Hide AUTO info
+            if (autoInfoDiv) {
+                autoInfoDiv.remove();
+            }
+            
+            const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10) || 50;
+            saveBandwidthLimit(clientId, 'manual', customValue);
+        } 
+        // Handle AUTO mode
+        else if (limit === 'auto') {
+            // Hide custom input
+            if (customInputSpan) {
+                customInputSpan.classList.add('hidden');
+            }
+            
+            // Show loading state
+            const existingAutoInfo = bandwidthCell.querySelector('.auto-bw-info');
+            if (existingAutoInfo) {
+                existingAutoInfo.innerHTML = 'Analyzing usage patterns...';
+            } else {
+                const loadingDiv = document.createElement('div');
+                loadingDiv.className = 'auto-bw-info';
+                loadingDiv.style.cssText = 'margin-top: 5px; font-size: 0.85em; color: #666;';
+                loadingDiv.innerHTML = 'Analyzing usage patterns...';
+                bandwidthCell.appendChild(loadingDiv);
+            }
+            
+            // Call API to auto-assign bandwidth
+            const token = localStorage.getItem('admin_token');
+            if (!token) return alert('Please login as admin');
+            
+            fetch(`/api/admin/bandwidth/auto-assign/${clientId}`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.tier && data.confidence !== undefined) {
+                    const confidencePercent = (data.confidence * 100).toFixed(0);
+                    const autoInfo = bandwidthCell.querySelector('.auto-bw-info');
+                    if (autoInfo) {
+                        autoInfo.innerHTML = `Currently: <strong>${data.tier.toUpperCase()}</strong> (${confidencePercent}% confidence)`;
+                    }
+                    console.log(`✅ AUTO bandwidth assigned: ${data.tier.toUpperCase()} (${data.explanation})`);
+                    addLog('info', 'ADMIN', `Set bandwidth to AUTO mode - assigned: ${data.tier.toUpperCase()}`);
                 } else {
-                    console.error('Failed to save bandwidth limit');
-                    alert('Failed to save bandwidth limit');
+                    console.error('Invalid response from auto-assign endpoint');
+                    alert('Failed to auto-assign bandwidth');
                 }
             })
             .catch(err => {
-                console.error('Error saving bandwidth:', err);
-                alert('Error saving bandwidth limit');
+                console.error('Error auto-assigning bandwidth:', err);
+                const autoInfo = bandwidthCell.querySelector('.auto-bw-info');
+                if (autoInfo) {
+                    autoInfo.innerHTML = 'Error - fallback to MEDIUM';
+                }
+                alert('Error auto-assigning bandwidth');
             });
+        }
+        // Handle preset tiers (LOW, MEDIUM, HIGH)
+        else {
+            // Hide custom input
+            if (customInputSpan) {
+                customInputSpan.classList.add('hidden');
+            }
+            // Remove AUTO info if switching away from AUTO
+            if (autoInfoDiv) {
+                autoInfoDiv.remove();
+            }
+            
+            saveBandwidthLimit(clientId, limit);
+        }
+    }
+    
+    // Save bandwidth limit to database
+    function saveBandwidthLimit(clientId, limit, customValue = null) {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please login as admin');
+        
+        const payload = { bandwidth_limit: limit };
+        
+        // If manual mode, include custom value
+        if (limit === 'manual' && customValue) {
+            payload.bandwidth_custom_value = customValue;
+        }
+        
+        fetch(`/api/admin/clients/${clientId}`, {
+            method: 'PATCH',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': 'Bearer ' + token 
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => {
+            if (res.ok) {
+                const displayValue = limit === 'manual' && customValue ? `${customValue} Mbps` : limit.toUpperCase();
+                console.log(`✅ Bandwidth limit saved: ${displayValue}`);
+                addLog('info', 'ADMIN', `Set bandwidth limit to ${displayValue}`);
+            } else {
+                console.error('Failed to save bandwidth limit');
+                alert('Failed to save bandwidth limit');
+            }
+        })
+        .catch(err => {
+            console.error('Error saving bandwidth:', err);
+            alert('Error saving bandwidth limit');
+        });
     }
 
     function handleCustomBandwidthInput(inputElement) {
@@ -881,7 +935,7 @@ document.addEventListener("DOMContentLoaded", () => {
             db.bandwidthLimits[id] = customValue;
         }
     }
-
+    
     function handleGenerateVouchers() {
         let newVouchers = [];
         for (let i = 0; i < 5; i++) {
@@ -892,7 +946,7 @@ document.addEventListener("DOMContentLoaded", () => {
         initGuestNetwork();
         addLog('info', 'ADMIN', 'Generated 5 new guest vouchers');
     }
-
+    
     function handleGuestToggle(checkbox) {
         const isChecked = checkbox.checked;
         db.guestNetworkEnabled = isChecked;
@@ -906,7 +960,7 @@ document.addEventListener("DOMContentLoaded", () => {
             addLog('warn', 'ADMIN', 'Guest Network Disabled');
         }
     }
-
+    
     function handleReportRangeChange(selectElement) {
         if (!selectElement) return;
         const value = selectElement.value;
@@ -938,15 +992,15 @@ document.addEventListener("DOMContentLoaded", () => {
             dateMonthly.classList.remove('hidden');
         }
     }
-
+    
     // --- NEW: Download Report Function ---
     function handleDownloadReport(button) {
         const format = button.dataset.format;
         const title = button.dataset.title;
         const filename = title.replace(/ /g, '_');
-
+        
         const table = button.closest('.report-result-card').querySelector('table');
-
+        
         const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent);
         const data = [...table.querySelectorAll('tbody tr')].map(tr => {
             return [...tr.querySelectorAll('td')].map(td => td.textContent);
@@ -971,19 +1025,19 @@ document.addEventListener("DOMContentLoaded", () => {
             blockedSitesList.appendChild(li);
         }
     }
-
+    
     function addLog(level, user, action) {
         const time = new Date().toLocaleTimeString('en-US', { hour12: true });
         const ip = db.clients.find(c => c.studentId === user)?.ip;
         db.logs.unshift({ time, level, user, ip, action });
-        if (db.logs.length > 100) db.logs.pop();
+        if (db.logs.length > 100) db.logs.pop(); 
         if (level === 'warn' || level === 'error') {
             addNotification(level, `${user}: ${action}`);
         }
-        if (document.getElementById('log-page')) initLogs();
-        if (document.getElementById('dashboard-page')) initDashboard();
+        if(document.getElementById('log-page')) initLogs();
+        if(document.getElementById('dashboard-page')) initDashboard();
     }
-
+    
     function addNotification(level, message) {
         notificationBadge.classList.remove('hidden');
         if (notificationList.querySelector('.empty-state')) {
@@ -996,7 +1050,7 @@ document.addEventListener("DOMContentLoaded", () => {
             notificationList.removeChild(notificationList.lastChild);
         }
     }
-
+    
     function initNotificationTray() {
         notificationList.innerHTML = '';
         const importantLogs = db.logs.filter(log => log.level === 'warn' || log.level === 'error').slice(0, 5);
@@ -1014,7 +1068,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function generateReportData(type, range) {
         let headers = [];
         let data = [];
-
+        
         switch (type) {
             case 'Top Bandwidth Users':
                 headers = ['Rank', 'Student ID', 'Device', 'Data Used (GB)'];
@@ -1061,11 +1115,11 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderReport(title, headers, data, format) {
         const resultsArea = document.getElementById('report-results-area');
         if (!resultsArea) return;
-
+        
         let tableHTML = `<table class="client-table"><thead><tr>`;
         headers.forEach(h => tableHTML += `<th>${h}</th>`);
         tableHTML += `</tr></thead><tbody>`;
-
+        
         data.forEach(row => {
             tableHTML += `<tr>`;
             row.forEach(cell => tableHTML += `<td>${cell}</td>`);
@@ -1086,10 +1140,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${tableHTML}
             </div>
         `;
-
+        
         resultsArea.prepend(card);
     }
-
+    
     // --- MODIFIED: This function is now fixed ---
     function downloadCSV(filename, headers, data) {
         let csvContent = "data:text/csv;charset=utf-8,";
@@ -1112,14 +1166,14 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
-
+            
             doc.text(title.replace(/_/g, ' '), 14, 20);
             doc.autoTable({
                 head: [headers],
                 body: data,
                 startY: 25,
             });
-
+            
             doc.save(`${filename}.pdf`);
         } catch (e) {
             console.error(e);
@@ -1140,7 +1194,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Find the clients page container in the DOM - ONLY create on clients page
         const clientsSection = document.getElementById('clients-page') || document.querySelector('.page#clients-page');
         if (!clientsSection) return null;  // Don't create table on non-clients pages
-
+        
         const container = clientsSection;
 
         // Create table markup and append
@@ -1190,7 +1244,7 @@ document.addEventListener("DOMContentLoaded", () => {
             tbody.innerHTML = '';
             clients.forEach(c => {
                 const tr = document.createElement('tr');
-
+                
                 // Determine status display
                 let statusHtml = '<span class="status-offline">Offline</span>';
                 if (c.status) {
@@ -1208,7 +1262,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else if (c.blocked) {
                     statusHtml = '<span class="status-blocked">Blocked</span>';
                 }
-
+                
                 tr.innerHTML = `
                     <td>${(c.roll_no || c.name || 'N/A')}</td>
                     <td>${c.ip_address || c.ip || 'N/A'}</td>
@@ -1297,7 +1351,7 @@ async function fetchAndApplyAdminData() {
                 logBody.innerHTML = '';
                 logs.slice(0, 50).forEach(log => {
                     const tr = document.createElement('tr');
-                    tr.innerHTML = `<td>${log.time || ''}</td><td><span class="log-level-${log.level || 'info'}">${(log.level || '').toUpperCase()}</span></td><td>${log.user || ''}</td><td>${log.action || ''}</td>`;
+                    tr.innerHTML = `<td>${log.time || ''}</td><td><span class="log-level-${log.level || 'info'}">${(log.level||'').toUpperCase()}</span></td><td>${log.user || ''}</td><td>${log.action || ''}</td>`;
                     logBody.appendChild(tr);
                 });
             }
@@ -1371,49 +1425,49 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Ensure global editClient exists for inline onclick usage
-window.editClient = function (id) {
+window.editClient = function(id) {
     openEditModal(String(id));
 };
 
 // Add this near the top of admin.js (before initDashboard uses it)
 function renderTrafficChart(ctx, chartData) {
-    // destroy previous chart if present
-    if (window.myTrafficChart && typeof window.myTrafficChart.destroy === 'function') {
-        window.myTrafficChart.destroy();
-    }
+  // destroy previous chart if present
+  if (window.myTrafficChart && typeof window.myTrafficChart.destroy === 'function') {
+    window.myTrafficChart.destroy();
+  }
 
-    // If caller did not pass chartData, make a small fallback dataset
-    if (!chartData) {
-        const labels = Array.from({ length: 8 }, (_, i) => {
-            const d = new Date(Date.now() - (7 - i) * 2000);
-            return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        });
-        chartData = {
-            labels,
-            datasets: [
-                { label: 'Download (KB/s)', backgroundColor: 'rgba(54,162,235,0.2)', borderColor: 'rgba(54,162,235,1)', data: labels.map(() => Math.floor(Math.random() * 400) + 50), fill: true },
-                { label: 'Upload (KB/s)', backgroundColor: 'rgba(255,99,132,0.1)', borderColor: 'rgba(255,99,132,1)', data: labels.map(() => Math.floor(Math.random() * 80) + 10), fill: true }
-            ]
-        };
-    }
-
-    window.myTrafficChart = new Chart(ctx, {
-        type: 'line',
-        data: chartData,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            stacked: false,
-            plugins: {
-                legend: { position: 'top' }
-            },
-            scales: {
-                x: { display: true },
-                y: { display: true, beginAtZero: true }
-            }
-        }
+  // If caller did not pass chartData, make a small fallback dataset
+  if (!chartData) {
+    const labels = Array.from({length: 8}, (_, i) => {
+      const d = new Date(Date.now() - (7 - i) * 2000);
+      return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
     });
+    chartData = {
+      labels,
+      datasets: [
+        { label: 'Download (KB/s)', backgroundColor: 'rgba(54,162,235,0.2)', borderColor: 'rgba(54,162,235,1)', data: labels.map(()=> Math.floor(Math.random()*400)+50), fill: true },
+        { label: 'Upload (KB/s)', backgroundColor: 'rgba(255,99,132,0.1)', borderColor: 'rgba(255,99,132,1)', data: labels.map(()=> Math.floor(Math.random()*80)+10), fill: true }
+      ]
+    };
+  }
+
+  window.myTrafficChart = new Chart(ctx, {
+    type: 'line',
+    data: chartData,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      stacked: false,
+      plugins: {
+        legend: { position: 'top' }
+      },
+      scales: {
+        x: { display: true },
+        y: { display: true, beginAtZero: true }
+      }
+    }
+  });
 }
 
 // ========== CSV UPLOAD FUNCTIONALITY - SIMPLE VERSION ==========
@@ -1421,28 +1475,28 @@ window.csvInitialized = false;
 
 function initCSVUpload() {
     console.log('CSV Upload: Initializing...');
-
+    
     const csvModal = document.getElementById('csv-modal');
     const openModalBtn = document.getElementById('open-csv-modal');
-
+    
     console.log('CSV Elements:', {
         modal: !!csvModal,
         button: !!openModalBtn
     });
-
+    
     if (!csvModal || !openModalBtn) {
         console.log('CSV elements not found yet');
         return false;
     }
-
+    
     // Check if already initialized
     if (window.csvInitialized) {
         console.log('CSV already initialized, skipping...');
         return true;
     }
-
+    
     console.log('CSV elements found! Setting up...');
-
+    
     const closeModalBtn = document.getElementById('close-csv-modal');
     const cancelBtn = document.getElementById('cancel-upload');
     const submitBtn = document.getElementById('submit-upload');
@@ -1453,11 +1507,11 @@ function initCSVUpload() {
     const resultMessage = document.getElementById('result-message');
     const uploadLoading = document.getElementById('upload-loading');
     const downloadTemplate = document.getElementById('download-template');
-
+    
     let selectedFile = null;
 
     // IMPORTANT: Use onclick instead of addEventListener
-    openModalBtn.onclick = function (e) {
+    openModalBtn.onclick = function(e) {
         console.log('===== CSV BUTTON CLICKED! =====');
         e.preventDefault();
         e.stopPropagation();
@@ -1465,25 +1519,25 @@ function initCSVUpload() {
         resetUploadForm();
         console.log('Modal should be visible now');
     };
-
+    
     console.log('Button onclick handler attached');
 
     // Close modal handlers
     if (closeModalBtn) {
-        closeModalBtn.onclick = function () {
+        closeModalBtn.onclick = function() {
             console.log('Close button clicked');
             csvModal.style.display = 'none';
         };
     }
-
+    
     if (cancelBtn) {
-        cancelBtn.onclick = function () {
+        cancelBtn.onclick = function() {
             console.log('Cancel button clicked');
             csvModal.style.display = 'none';
         };
     }
-
-    csvModal.onclick = function (e) {
+    
+    csvModal.onclick = function(e) {
         if (e.target === csvModal) {
             console.log('Modal overlay clicked');
             csvModal.style.display = 'none';
@@ -1492,7 +1546,7 @@ function initCSVUpload() {
 
     // Browse button
     if (browseBtn && fileInput) {
-        browseBtn.onclick = function () {
+        browseBtn.onclick = function() {
             console.log('Browse button clicked');
             fileInput.click();
         };
@@ -1500,7 +1554,7 @@ function initCSVUpload() {
 
     // File input change
     if (fileInput) {
-        fileInput.onchange = function (e) {
+        fileInput.onchange = function(e) {
             console.log('File selected:', e.target.files[0]);
             handleFileSelect(e.target.files[0]);
         };
@@ -1508,18 +1562,18 @@ function initCSVUpload() {
 
     // Drag and drop
     if (dropArea) {
-        dropArea.ondragover = function (e) {
+        dropArea.ondragover = function(e) {
             e.preventDefault();
             dropArea.style.borderColor = '#007bff';
             dropArea.style.backgroundColor = '#e7f3ff';
         };
 
-        dropArea.ondragleave = function () {
+        dropArea.ondragleave = function() {
             dropArea.style.borderColor = '#007bff';
             dropArea.style.backgroundColor = 'transparent';
         };
 
-        dropArea.ondrop = function (e) {
+        dropArea.ondrop = function(e) {
             e.preventDefault();
             console.log('File dropped');
             dropArea.style.borderColor = '#007bff';
@@ -1531,15 +1585,15 @@ function initCSVUpload() {
     function handleFileSelect(file) {
         console.log('Handling file:', file);
         if (!file) return;
-
+        
         const validTypes = ['.csv', '.xlsx', '.xls'];
         const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
+        
         if (!validTypes.includes(fileExtension)) {
             showResult('error', '❌ Invalid file format. Please upload CSV or Excel file.');
             return;
         }
-
+        
         selectedFile = file;
         if (fileName) {
             fileName.textContent = `✅ Selected: ${file.name}`;
@@ -1552,26 +1606,26 @@ function initCSVUpload() {
 
     // Submit upload
     if (submitBtn) {
-        submitBtn.onclick = async function () {
+        submitBtn.onclick = async function() {
             console.log('Submit button clicked');
             if (!selectedFile) {
                 console.log('No file selected');
                 return;
             }
-
+            
             const token = localStorage.getItem('admin_token');
             if (!token) {
                 alert('Please log in as admin');
                 return;
             }
-
+            
             const formData = new FormData();
             formData.append('file', selectedFile);
-
+            
             if (uploadLoading) uploadLoading.style.display = 'block';
             submitBtn.disabled = true;
             if (resultMessage) resultMessage.style.display = 'none';
-
+            
             try {
                 console.log('Sending upload request...');
                 const response = await fetch('/api/admin/bulk-upload', {
@@ -1581,21 +1635,21 @@ function initCSVUpload() {
                     },
                     body: formData
                 });
-
+                
                 const data = await response.json();
                 console.log('Upload response:', data);
-
+                
                 if (response.ok) {
                     let message = `✅ Upload completed!\n\n`;
                     message += `• Added: ${data.added} students\n`;
                     message += `• Skipped: ${data.skipped} students\n`;
-
+                    
                     if (data.errors && data.errors.length > 0) {
                         message += `\n⚠️ Errors:\n${data.errors.join('\n')}`;
                     }
-
+                    
                     showResult('success', message);
-
+                    
                     setTimeout(() => {
                         if (typeof loadClientsData === 'function') {
                             loadClientsData();
@@ -1616,7 +1670,7 @@ function initCSVUpload() {
 
     function showResult(type, message) {
         if (!resultMessage) return;
-
+        
         resultMessage.className = `result-message ${type}`;
         resultMessage.textContent = message;
         resultMessage.style.display = 'block';
@@ -1624,7 +1678,7 @@ function initCSVUpload() {
         resultMessage.style.borderRadius = '6px';
         resultMessage.style.marginTop = '15px';
         resultMessage.style.whiteSpace = 'pre-line';
-
+        
         if (type === 'success') {
             resultMessage.style.backgroundColor = '#d4edda';
             resultMessage.style.color = '#155724';
@@ -1648,7 +1702,7 @@ function initCSVUpload() {
 
     // Download template
     if (downloadTemplate) {
-        downloadTemplate.onclick = function (e) {
+        downloadTemplate.onclick = function(e) {
             e.preventDefault();
             console.log('Downloading template');
             const csvContent = "roll_number,password\n23203A0027,password123\n23203A0038,password456\n23203A0045,password789";
@@ -1661,7 +1715,7 @@ function initCSVUpload() {
             window.URL.revokeObjectURL(url);
         };
     }
-
+    
     window.csvInitialized = true;
     console.log('✅ CSV Upload initialized successfully!');
     return true;
@@ -1674,7 +1728,7 @@ function tryInitCSV() {
         console.log('✅ CSV Upload ready!');
         return;
     }
-
+    
     csvRetries++;
     if (csvRetries < 15) {
         setTimeout(tryInitCSV, 500);
@@ -1689,7 +1743,7 @@ if (document.readyState === 'loading') {
 }
 
 // Watch for clients page
-const csvObserver = new MutationObserver(function (mutations) {
+const csvObserver = new MutationObserver(function(mutations) {
     const clientsPage = document.getElementById('clients-page');
     if (clientsPage && !window.csvInitialized) {
         console.log('📄 Clients page detected');
