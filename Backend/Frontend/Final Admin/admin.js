@@ -269,27 +269,70 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 
                 const row = document.createElement("tr");
+                
+                // Determine bandwidth display for AUTO mode
+                let bandwidthDisplayHtml = '';
+                if (limit === 'auto') {
+                    const autoAssigned = client.bandwidth_auto_assigned || 'medium';
+                    const autoConfidence = client.bandwidth_auto_confidence || 0;
+                    const confidencePercent = (autoConfidence * 100).toFixed(0);
+                    bandwidthDisplayHtml = `
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="low">LOW (10 Mbps)</option>
+                                <option value="medium">MEDIUM (25 Mbps)</option>
+                                <option value="high">HIGH (100 Mbps)</option>
+                                <option value="manual">MANUAL (Custom)</option>
+                                <option value="auto" selected>AUTO (ML-Based)</option>
+                            </select>
+                            <div class="auto-bw-info" style="margin-top: 5px; font-size: 0.85em; color: #666;">
+                                Currently: <strong>${autoAssigned.toUpperCase()}</strong> (${confidencePercent}% confidence)
+                            </div>
+                        </div>
+                    `;
+                } else if (limit === 'manual') {
+                    const customValue = client.bandwidth_custom_value || 50;
+                    bandwidthDisplayHtml = `
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="low">LOW (10 Mbps)</option>
+                                <option value="medium">MEDIUM (25 Mbps)</option>
+                                <option value="high">HIGH (100 Mbps)</option>
+                                <option value="manual" selected>MANUAL (Custom)</option>
+                                <option value="auto">AUTO (ML-Based)</option>
+                            </select>
+                            <span class="custom-bw-group" style="margin-left: 10px;">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${customValue}" min="1" style="width: 60px;">
+                                <span>Mbps</span>
+                            </span>
+                        </div>
+                    `;
+                } else {
+                    // Normal preset tiers: low, medium, high
+                    const normalizedLimit = limit || 'medium';
+                    bandwidthDisplayHtml = `
+                        <div class="bandwidth-control-cell">
+                            <select class="limit-select" data-id="${clientId}">
+                                <option value="low" ${normalizedLimit === 'low' ? 'selected' : ''}>LOW (10 Mbps)</option>
+                                <option value="medium" ${normalizedLimit === 'medium' ? 'selected' : ''}>MEDIUM (25 Mbps)</option>
+                                <option value="high" ${normalizedLimit === 'high' ? 'selected' : ''}>HIGH (100 Mbps)</option>
+                                <option value="manual">MANUAL (Custom)</option>
+                                <option value="auto">AUTO (ML-Based)</option>
+                            </select>
+                            <span class="custom-bw-group hidden">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="50" min="1" style="width: 60px;">
+                                <span>Mbps</span>
+                            </span>
+                        </div>
+                    `;
+                }
+                
                 row.innerHTML = `
                     <td>${client.roll_no || client.name || 'Unknown'}</td>
                     <td>${dataUsage} GB</td>
                     <td>${activity}</td>
                     <td style="text-align: center;">${statusHtml}</td>
-                    <td>
-                        <div class="bandwidth-control-cell">
-                            <select class="limit-select" data-id="${clientId}">
-                                <option value="vlow" ${limit === 'vlow' ? 'selected' : ''}>Very Low (2 Mbps)</option>
-                                <option value="low" ${limit === 'low' ? 'selected' : ''}>Low (10 Mbps)</option>
-                                <option value="standard" ${!limit || limit === 'standard' ? 'selected' : ''}>Standard (25 Mbps)</option>
-                                <option value="high" ${limit === 'high' ? 'selected' : ''}>High (100 Mbps)</option>
-                                <option value="unlimited" ${limit === 'unlimited' ? 'selected' : ''}>Unlimited</option>
-                                <option value="custom" ${isCustom ? 'selected' : ''}>Manual...</option>
-                            </select>
-                            <span class="custom-bw-group ${isCustom ? '' : 'hidden'}">
-                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${isCustom ? limit : '50'}" min="1">
-                                <span>Mbps</span>
-                            </span>
-                        </div>
-                    </td>
+                    <td>${bandwidthDisplayHtml}</td>
                 `;
                 bandwidthListBody.appendChild(row);
             });
@@ -764,22 +807,101 @@ document.addEventListener("DOMContentLoaded", () => {
     function handleBandwidthChange(selectElement) {
         const clientId = selectElement.dataset.id;
         const limit = selectElement.value;
-        const customInputSpan = selectElement.closest('.bandwidth-control-cell').querySelector('.custom-bw-group');
+        const bandwidthCell = selectElement.closest('.bandwidth-control-cell');
+        const customInputSpan = bandwidthCell.querySelector('.custom-bw-group');
+        const autoInfoDiv = bandwidthCell.querySelector('.auto-bw-info');
         
-        if (limit === 'custom') {
-            customInputSpan.classList.remove('hidden');
-            const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10);
-            saveBandwidthLimit(clientId, customValue);
-        } else {
-            customInputSpan.classList.add('hidden');
+        // Handle MANUAL mode
+        if (limit === 'manual') {
+            // Show custom input field
+            if (customInputSpan) {
+                customInputSpan.classList.remove('hidden');
+            }
+            // Hide AUTO info
+            if (autoInfoDiv) {
+                autoInfoDiv.remove();
+            }
+            
+            const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10) || 50;
+            saveBandwidthLimit(clientId, 'manual', customValue);
+        } 
+        // Handle AUTO mode
+        else if (limit === 'auto') {
+            // Hide custom input
+            if (customInputSpan) {
+                customInputSpan.classList.add('hidden');
+            }
+            
+            // Show loading state
+            const existingAutoInfo = bandwidthCell.querySelector('.auto-bw-info');
+            if (existingAutoInfo) {
+                existingAutoInfo.innerHTML = 'Analyzing usage patterns...';
+            } else {
+                const loadingDiv = document.createElement('div');
+                loadingDiv.className = 'auto-bw-info';
+                loadingDiv.style.cssText = 'margin-top: 5px; font-size: 0.85em; color: #666;';
+                loadingDiv.innerHTML = 'Analyzing usage patterns...';
+                bandwidthCell.appendChild(loadingDiv);
+            }
+            
+            // Call API to auto-assign bandwidth
+            const token = localStorage.getItem('admin_token');
+            if (!token) return alert('Please login as admin');
+            
+            fetch(`/api/admin/bandwidth/auto-assign/${clientId}`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.tier && data.confidence !== undefined) {
+                    const confidencePercent = (data.confidence * 100).toFixed(0);
+                    const autoInfo = bandwidthCell.querySelector('.auto-bw-info');
+                    if (autoInfo) {
+                        autoInfo.innerHTML = `Currently: <strong>${data.tier.toUpperCase()}</strong> (${confidencePercent}% confidence)`;
+                    }
+                    console.log(`✅ AUTO bandwidth assigned: ${data.tier.toUpperCase()} (${data.explanation})`);
+                    addLog('info', 'ADMIN', `Set bandwidth to AUTO mode - assigned: ${data.tier.toUpperCase()}`);
+                } else {
+                    console.error('Invalid response from auto-assign endpoint');
+                    alert('Failed to auto-assign bandwidth');
+                }
+            })
+            .catch(err => {
+                console.error('Error auto-assigning bandwidth:', err);
+                const autoInfo = bandwidthCell.querySelector('.auto-bw-info');
+                if (autoInfo) {
+                    autoInfo.innerHTML = 'Error - fallback to MEDIUM';
+                }
+                alert('Error auto-assigning bandwidth');
+            });
+        }
+        // Handle preset tiers (LOW, MEDIUM, HIGH)
+        else {
+            // Hide custom input
+            if (customInputSpan) {
+                customInputSpan.classList.add('hidden');
+            }
+            // Remove AUTO info if switching away from AUTO
+            if (autoInfoDiv) {
+                autoInfoDiv.remove();
+            }
+            
             saveBandwidthLimit(clientId, limit);
         }
     }
     
     // Save bandwidth limit to database
-    function saveBandwidthLimit(clientId, limit) {
+    function saveBandwidthLimit(clientId, limit, customValue = null) {
         const token = localStorage.getItem('admin_token');
         if (!token) return alert('Please login as admin');
+        
+        const payload = { bandwidth_limit: limit };
+        
+        // If manual mode, include custom value
+        if (limit === 'manual' && customValue) {
+            payload.bandwidth_custom_value = customValue;
+        }
         
         fetch(`/api/admin/clients/${clientId}`, {
             method: 'PATCH',
@@ -787,12 +909,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 'Content-Type': 'application/json', 
                 'Authorization': 'Bearer ' + token 
             },
-            body: JSON.stringify({ bandwidth_limit: limit })
+            body: JSON.stringify(payload)
         })
         .then(res => {
             if (res.ok) {
-                console.log(`✅ Bandwidth limit saved: ${limit}`);
-                addLog('info', 'ADMIN', `Set bandwidth limit to ${limit}`);
+                const displayValue = limit === 'manual' && customValue ? `${customValue} Mbps` : limit.toUpperCase();
+                console.log(`✅ Bandwidth limit saved: ${displayValue}`);
+                addLog('info', 'ADMIN', `Set bandwidth limit to ${displayValue}`);
             } else {
                 console.error('Failed to save bandwidth limit');
                 alert('Failed to save bandwidth limit');

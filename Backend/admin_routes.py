@@ -1,4 +1,4 @@
- #pip install pandas openpyxl xlrd
+#pip install pandas openpyxl xlrd
 
 from flask import Blueprint, request, jsonify, current_app as app
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -8,14 +8,25 @@ import jwt, datetime
 from bson.objectid import ObjectId
 import pandas as pd
 import io
+import threading
 
-# ✅ MongoDB
+# Import firewall blocker
+try:
+    from domain_resolver import resolve_domain_to_ips
+    from firewall_blocker import block_domain, unblock_domain
+    FIREWALL_AVAILABLE = True
+except ImportError:
+    print("⚠️  Firewall blocker not available - web filtering will only update database")
+    FIREWALL_AVAILABLE = False
+
+# [OK] MongoDB
 client = MongoClient("mongodb://localhost:27017/")
 db = client['studentapp']
 admins_collection = db['admins']
 users_collection = db['users']
+web_filter_collection = db['web_filter']
 
-# ✅ Middleware for token check
+# [OK] Middleware for token check
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -54,7 +65,7 @@ def _find_user_by_mixed_id(id):
     doc = users_collection.find_one({"roll_no": id})
     return doc
 
-# ✅ Admin Login
+# [OK] Admin Login
 @admin_routes.route('/admin/login', methods=['POST'])
 def admin_login():
     data = request.get_json()
@@ -531,3 +542,241 @@ def bulk_upload_clients():
     except Exception as e:
         print(f"Bulk upload error: {e}")
         return jsonify({'error': str(e)}), 500
+
+# S&  Web Filtering
+
+DEFAULT_CATEGORIES = {
+
+    "Gaming": {
+
+        "active": True,
+
+        "sites": ["steampowered.com", "twitch.tv", "roblox.com", "discord.gg", "epicgames.com", "ea.com", "playvalorant.com", "minecraft.net", "battle.net", "ubisoft.com"]
+
+    },
+
+    "Social Media": {
+
+        "active": False,
+
+        "sites": ["tiktok.com", "instagram.com", "facebook.com", "twitter.com", "reddit.com", "snapchat.com", "pinterest.com"]
+
+    },
+
+    "Streaming": {
+
+        "active": False,
+
+        "sites": ["netflix.com", "hulu.com", "disneyplus.com", "hbomax.com", "primevideo.com", "spotify.com", "peacocktv.com"]
+
+    },
+
+    "File Sharing": {
+
+        "active": True,
+
+        "sites": ["thepiratebay.org", "1337x.to", "megaupload.com", "wetransfer.com", "mediafire.com", "rarbg.to"]
+
+    },
+
+    "Proxy/VPN": {
+
+        "active": True,
+
+        "sites": ["nordvpn.com", "expressvpn.com", "hidemyass.com", "proxysite.com", "cyberghostvpn.com", "surfshark.com", "privateinternetaccess.com", "protonvpn.me", "tunnelbear.com"]
+
+    }
+
+}
+
+
+
+def _refresh_web_filter_defaults():
+
+    """Ensure basic structure exists in DB"""
+
+    if web_filter_collection.count_documents({}) == 0:
+
+        # Initialize default structure
+
+        doc = {
+
+            "type": "config",
+
+            "categories": DEFAULT_CATEGORIES,
+
+            "manual_blocks": ["specific-cheating-site.com", "unblock-proxy.net"]
+
+        }
+
+        web_filter_collection.insert_one(doc)
+
+
+
+@admin_routes.route('/admin/filtering', methods=['GET'])
+
+@admin_required
+
+def get_filtering():
+
+    _refresh_web_filter_defaults()
+
+    config = web_filter_collection.find_one({"type": "config"})
+
+    if not config:
+
+        return jsonify({"message": "Error loading config"}), 500
+
+    
+
+    return jsonify({
+
+        "categories": config.get("categories", {}),
+
+        "manual_blocks": config.get("manual_blocks", [])
+
+    }), 200
+
+
+
+@admin_routes.route('/admin/filtering/categories', methods=['POST'])
+
+@admin_required
+
+def toggle_category():
+
+    data = request.get_json()
+
+    category = data.get("category")
+
+    
+
+    if not category:
+
+        return jsonify({"message": "Category required"}), 400
+
+        
+
+    _refresh_web_filter_defaults()
+
+    config = web_filter_collection.find_one({"type": "config"})
+
+    
+
+    categories = config.get("categories", {})
+
+    if category not in categories:
+
+        return jsonify({"message": "Category not found"}), 404
+
+        
+
+    # Toggle
+
+    current_status = categories[category]["active"]
+
+    new_status = not current_status
+
+    
+
+    web_filter_collection.update_one(
+
+        {"type": "config"},
+
+        {"$set": {f"categories.{category}.active": new_status}}
+
+    )
+
+    
+
+    return jsonify({"message": "Updated", "active": new_status}), 200
+
+
+
+@admin_routes.route('/admin/filtering/sites', methods=['POST'])
+@admin_required
+def add_blocked_site():
+    data = request.get_json()
+    url = data.get("url")
+    
+    if not url:
+        return jsonify({"message": "URL required"}), 400
+        
+    _refresh_web_filter_defaults()
+    
+    # Check if already exists
+    config = web_filter_collection.find_one({"type": "config"})
+    if url in config.get("manual_blocks", []):
+         return jsonify({"message": "Already blocked"}), 409
+         
+    # Add to MongoDB
+    web_filter_collection.update_one(
+        {"type": "config"},
+        {"$push": {"manual_blocks": url}}
+    )
+    
+    # NEW: Create firewall rules in background
+    if FIREWALL_AVAILABLE:
+        def create_firewall_rules_async(domain):
+            try:
+                print(f"\n🔄 Creating firewall rules for {domain}...")
+                ips = resolve_domain_to_ips(domain)
+                if ips:
+                    success, msg, count = block_domain(domain, ips)
+                    if success:
+                        print(f"✅ Firewall: {msg}")
+                    else:
+                        print(f"❌ Firewall: {msg}")
+                else:
+                    print(f"⚠️  No IPs found for {domain}")
+            except Exception as e:
+                print(f"❌ Firewall error: {e}")
+        
+        # Run in background thread so API responds quickly
+        thread = threading.Thread(target=create_firewall_rules_async, args=(url,))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"message": f"Site blocked via firewall ({url})"}), 201
+    else:
+        return jsonify({"message": "Site blocked (firewall unavailable)"}), 201
+
+
+
+@admin_routes.route('/admin/filtering/sites', methods=['DELETE'])
+@admin_required
+def remove_blocked_site():
+    data = request.get_json()
+    url = data.get("url")
+    
+    if not url:
+        return jsonify({"message": "URL required"}), 400
+        
+    _refresh_web_filter_defaults()
+    
+    # Remove from MongoDB
+    web_filter_collection.update_one(
+        {"type": "config"},
+        {"$pull": {"manual_blocks": url}}
+    )
+    
+    # NEW: Remove firewall rules in background
+    if FIREWALL_AVAILABLE:
+        def remove_firewall_rules_async(domain):
+            try:
+                print(f"\n🔄 Removing firewall rules for {domain}...")
+                success, msg = unblock_domain(domain)
+                if success:
+                    print(f"✅ Firewall: {msg}")
+                else:
+                    print(f"❌ Firewall: {msg}")
+            except Exception as e:
+                print(f"❌ Firewall error: {e}")
+        
+        thread = threading.Thread(target=remove_firewall_rules_async, args=(url,))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"message": f"Site unblocked via firewall ({url})"}), 200
+    else:
+        return jsonify({"message": "Site unblocked (firewall unavailable)"}), 200

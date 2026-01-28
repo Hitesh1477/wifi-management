@@ -32,11 +32,13 @@ anomalies = db["anomalies"]
 WINDOW_MINUTES = 60  # Analyze last 60 minutes
 
 # Thresholds for labeling (used for supervised training)
+# ADJUSTED FOR COLLEGE USE - More strict to detect non-academic activity
 THRESHOLDS = {
-    "high_activity": 10,
-    "video_abuse_ratio": 0.4,
-    "social_abuse_ratio": 0.4,
-    "combined_abuse_ratio": 0.5,
+    "high_activity": 5,           # Lowered from 10 - even moderate activity is flagged
+    "video_abuse_ratio": 0.15,    # Lowered from 0.4 - any significant video is flagged
+    "social_abuse_ratio": 0.15,   # Lowered from 0.4 - any significant social media is flagged
+    "gaming_threshold": 1,        # Even 1 gaming request is an anomaly
+    "combined_abuse_ratio": 0.25, # Lowered from 0.5 - stricter entertainment threshold
 }
 
 
@@ -81,13 +83,19 @@ def create_labels(df):
         total = row["total"]
         video_ratio = row["video"] / total if total > 0 else 0
         social_ratio = row["social"] / total if total > 0 else 0
+        gaming = row["gaming"]
         combined = video_ratio + social_ratio
 
+        # STRICTER RULES FOR COLLEGE USE:
+        # Gaming = immediate anomaly (non-academic)
+        # High video/social = anomaly
+        # Even moderate entertainment = anomaly
         anomaly = (
-            total >= THRESHOLDS["high_activity"] or
-            video_ratio >= THRESHOLDS["video_abuse_ratio"] or
-            social_ratio >= THRESHOLDS["social_abuse_ratio"] or
-            combined >= THRESHOLDS["combined_abuse_ratio"]
+            gaming >= THRESHOLDS["gaming_threshold"] or          # Any gaming
+            total >= THRESHOLDS["high_activity"] or              # High activity
+            video_ratio >= THRESHOLDS["video_abuse_ratio"] or    # Video streaming
+            social_ratio >= THRESHOLDS["social_abuse_ratio"] or  # Social media
+            combined >= THRESHOLDS["combined_abuse_ratio"]       # Combined entertainment
         )
         labels.append(1 if anomaly else 0)
 
@@ -132,25 +140,42 @@ def generate_training_data():
     data = []
     labels = []
 
-    # Normal behavior
-    for _ in range(100):
-        total = np.random.randint(1, 10)
-        video = np.random.randint(0, 2)
-        social = np.random.randint(0, 2)
-        messaging = np.random.randint(0, 3)
-        gaming = 0
+    # Normal behavior - STRICT ACADEMIC USE ONLY (200 examples)
+    # Only messaging and minimal general browsing
+    for _ in range(200):
+        total = np.random.randint(1, 8)  # Very low activity
+        video = 0  # No video
+        social = 0  # No social media
+        messaging = np.random.randint(0, max(1, int(total * 0.8)))  # Mostly messaging
+        gaming = 0  # No gaming
         data.append([total, video, social, messaging, gaming])
-        labels.append(0)
+        labels.append(0)  # NORMAL
 
-    # High activity anomalies
-    for _ in range(100):
-        total = np.random.randint(20, 200)
-        video = np.random.randint(0, total//2)
-        social = np.random.randint(0, total//2)
-        gaming = np.random.randint(0, total//3)
-        messaging = total - video - social - gaming
+    # High activity anomalies - NON-ACADEMIC (200 examples)
+    # Any significant entertainment = anomaly
+    for _ in range(200):
+        total = np.random.randint(5, 200)
+        
+        # Random mix of entertainment activities
+        video = np.random.randint(0, max(1, int(total * 0.4)))
+        social = np.random.randint(0, max(1, int(total * 0.4)))
+        gaming = np.random.randint(0, max(1, int(total * 0.3)))
+        messaging = np.random.randint(0, max(1, int(total * 0.3)))
+        
         data.append([total, video, social, messaging, gaming])
-        labels.append(1)
+        labels.append(1)  # ANOMALY
+    
+    # GAMING SPECIFIC ANOMALIES (150 examples)
+    # Gaming should ALWAYS be detected with HIGH confidence
+    for _ in range(150):
+        total = np.random.randint(3, 150)
+        gaming = np.random.randint(1, max(2, int(total * 0.6)))  # Significant gaming
+        video = np.random.randint(0, max(1, int(total * 0.2)))
+        social = np.random.randint(0, max(1, int(total * 0.2)))
+        messaging = np.random.randint(0, max(1, int(total * 0.2)))
+        
+        data.append([total, video, social, messaging, gaming])
+        labels.append(1)  # ANOMALY - GAMING
 
     df = pd.DataFrame(data, columns=["total", "video", "social", "messaging", "gaming"])
     df["video_ratio"] = df["video"] / df["total"]
@@ -171,11 +196,14 @@ def train_model():
     scaler = StandardScaler()
     X_synth = scaler.fit_transform(X_synth)
 
+    # Adjusted for COLLEGE USE - Higher confidence in predictions
     model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=12,
+        n_estimators=150,      # Increased from 100 for better confidence
+        max_depth=20,          # Increased from 12 for better separation
+        min_samples_split=2,   # More specific splits
+        min_samples_leaf=1,    # Allow very specific patterns
         random_state=42,
-        class_weight="balanced"
+        class_weight={0: 1, 1: 3}  # Weight anomalies 3x more (gaming is important)
     )
     model.fit(X_synth, y_synth)
 
@@ -219,23 +247,24 @@ def generate_reason(features):
     
     reasons = []
     
+    # PRIORITY: Gaming is the most important for college monitoring
     if gaming > 0:
-        reasons.append(f"Gaming detected ({int(gaming)} requests, {gaming_ratio:.0%})")
+        reasons.append(f"🎮 GAMING DETECTED ({int(gaming)} requests, {gaming_ratio:.0%} of activity) - Non-academic use")
     
     if total >= 50:
         reasons.append(f"High activity ({int(total)} requests)")
     
-    if video_ratio >= 0.4:
-        reasons.append(f"Excessive video ({video_ratio:.0%})")
+    if video_ratio >= 0.15:
+        reasons.append(f"Video streaming ({video_ratio:.0%})")
     
-    if social_ratio >= 0.4:
-        reasons.append(f"Excessive social media ({social_ratio:.0%})")
+    if social_ratio >= 0.15:
+        reasons.append(f"Social media usage ({social_ratio:.0%})")
     
-    if entertainment_ratio >= 0.5 and gaming == 0:
-        reasons.append(f"High entertainment ({entertainment_ratio:.0%})")
+    if entertainment_ratio >= 0.25 and gaming == 0:
+        reasons.append(f"Entertainment focused ({entertainment_ratio:.0%})")
     
     if not reasons:
-        reasons.append("Unusual behavior pattern")
+        reasons.append("Unusual behavior pattern detected")
     
     return "; ".join(reasons)
 
@@ -244,9 +273,12 @@ def generate_reason(features):
 # Save Anomalies to Database
 # =========================
 def save_ml_anomalies(roll_nos, client_ips, predictions, probabilities, features):
-    """Save detected anomalies to MongoDB"""
+    """Save detected anomalies to MongoDB and auto-block high confidence violations"""
+    from block_user import block_user  # Import blocking function
+    
     now = datetime.now(UTC)
     saved_count = 0
+    blocked_count = 0
     
     for i, (roll_no, pred, prob) in enumerate(zip(roll_nos, predictions, probabilities)):
         if pred == 1:  # Anomaly detected
@@ -282,6 +314,17 @@ def save_ml_anomalies(roll_nos, client_ips, predictions, probabilities, features
                 "timestamp": now
             })
             saved_count += 1
+            
+            # AUTO-BLOCK: If confidence is high enough, block the user
+            # - confidence >= 95% => PERMANENT BAN
+            # - confidence >= 75% => 24-HOUR TEMPORARY BAN
+            if prob >= 0.75:
+                if block_user(roll_no, prob, reason):
+                    blocked_count += 1
+                    print(f"   🚫 AUTO-BLOCKED: {roll_no} (confidence: {prob:.1%})")
+    
+    if blocked_count > 0:
+        print(f"\n⚠️  AUTO-BLOCKED {blocked_count} user(s) for policy violations")
     
     return saved_count
 
