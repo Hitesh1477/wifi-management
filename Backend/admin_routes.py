@@ -10,21 +10,13 @@ import pandas as pd
 import io
 import threading
 
-# Import firewall blocker
-try:
-    from domain_resolver import resolve_domain_to_ips
-    from firewall_blocker import block_domain, unblock_domain
-    FIREWALL_AVAILABLE = True
-except ImportError:
-    print("⚠️  Firewall blocker not available - web filtering will only update database")
-    FIREWALL_AVAILABLE = False
-
 # [OK] MongoDB
 client = MongoClient("mongodb://localhost:27017/")
 db = client['studentapp']
 admins_collection = db['admins']
 users_collection = db['users']
 web_filter_collection = db['web_filter']
+notifications_collection = db['notifications']
 
 # [OK] Middleware for token check
 def admin_required(f):
@@ -97,6 +89,246 @@ def admin_stats():
         "active_users": active_users,
         "blocked_users": blocked_users
     }), 200
+
+@admin_routes.route("/admin/dashboard/stats", methods=["GET"])
+@admin_required
+def dashboard_stats():
+    """Get real-time dashboard statistics"""
+    try:
+        # Get active sessions collection
+        active_sessions_col = db['active_sessions'] if 'active_sessions' in db.list_collection_names() else None
+        detections_col = db['detections'] if 'detections' in db.list_collection_names() else None
+        blocked_users_col = db['blocked_users'] if 'blocked_users' in db.list_collection_names() else None
+        
+        # 1. Count active students (from active_sessions with status "active")
+        active_students = 0
+        if active_sessions_col is not None:
+            active_students = active_sessions_col.count_documents({"status": "active"})
+        
+        # 2. Calculate total data usage in last 24 hours (from detections)
+        # We'll use detection count as a proxy for data usage (each detection ≈ 0.01 GB)
+        now = datetime.datetime.utcnow()
+        last_24h = now - datetime.timedelta(hours=24)
+        
+        total_data_gb = 0
+        if detections_col is not None:
+            detection_count_24h = detections_col.count_documents({"timestamp": {"$gte": last_24h}})
+            total_data_gb = round(detection_count_24h * 0.01, 1)  # Approximate data usage
+        
+        # 3. Count threats blocked in last 24 hours
+        threats_blocked = 0
+        if blocked_users_col is not None:
+            # Count blocks created in last 24h
+            threats_blocked += blocked_users_col.count_documents({
+                "blocked_at": {"$gte": last_24h}
+            })
+        
+        # Also count high-risk detections (proxy, vpn, adult, malware)
+        if detections_col is not None:
+            high_risk_categories = ['proxy', 'vpn', 'adult', 'malware']
+            threats_blocked += detections_col.count_documents({
+                "timestamp": {"$gte": last_24h},
+                "category": {"$in": high_risk_categories}
+            })
+        
+        # 4. Get recent traffic data for chart (last 10 data points, grouped by 2-minute intervals)
+        traffic_data = {
+            "labels": [],
+            "download": [],
+            "upload": []
+        }
+        
+        if detections_col is not None:
+            # Get detections from last 20 minutes, grouped by 2-minute intervals
+            last_20min = now - datetime.timedelta(minutes=20)
+            pipeline = [
+                {"$match": {"timestamp": {"$gte": last_20min}}},
+                {"$group": {
+                    "_id": {
+                        "$subtract": [
+                            {"$toLong": "$timestamp"},
+                            {"$mod": [{"$toLong": "$timestamp"}, 120000]}  # 2 minutes in ms
+                        ]
+                    },
+                    "count": {"$sum": 1}
+                }},
+                {"$sort": {"_id": 1}},
+                {"$limit": 10}
+            ]
+            
+            try:
+                results = list(detections_col.aggregate(pipeline))
+                for r in results:
+                    # Convert timestamp to IST time string
+                    ts = datetime.datetime.fromtimestamp(r["_id"] / 1000.0)
+                    time_str = ts.strftime('%H:%M:%S')
+                    traffic_data["labels"].append(time_str)
+                    # Simulate download/upload based on detection count
+                    download_kb = r["count"] * 50  # Approx 50 KB per detection
+                    upload_kb = r["count"] * 15    # Upload is typically less
+                    traffic_data["download"].append(download_kb)
+                    traffic_data["upload"].append(upload_kb)
+            except Exception as e:
+                print(f"Error aggregating traffic data: {e}")
+                # Fallback to empty data
+                pass
+        
+        # If no traffic data, provide at least one point to avoid empty chart
+        if len(traffic_data["labels"]) == 0:
+            current_time = datetime.datetime.now().strftime('%H:%M:%S')
+            traffic_data["labels"] = [current_time]
+            traffic_data["download"] = [0]
+            traffic_data["upload"] = [0]
+        
+        return jsonify({
+            "active_students": active_students,
+            "total_data_gb": total_data_gb,
+            "threats_blocked": threats_blocked,
+            "traffic_data": traffic_data
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in dashboard_stats: {e}")
+        return jsonify({
+            "error": str(e),
+            "active_students": 0,
+            "total_data_gb": 0,
+            "threats_blocked": 0,
+            "traffic_data": {"labels": [], "download": [], "upload": []}
+        }), 500
+
+# ========================================
+# NOTIFICATIONS SYSTEM
+# ========================================
+
+def create_notification(level, notification_type, user, message):
+    """
+    Helper function to create a notification
+    
+    Args:
+        level: 'info', 'warn', or 'error'
+        notification_type: 'bandwidth', 'security', 'login', 'system'
+        user: username or 'SYSTEM' or 'ADMIN'
+        message: notification message text
+    """
+    try:
+        notification = {
+            "level": level,
+            "type": notification_type,
+            "user": user,
+            "message": message,
+            "timestamp": datetime.datetime.utcnow(),
+            "read": False
+        }
+        notifications_collection.insert_one(notification)
+        print(f"✅ Notification created: [{level.upper()}] {message}")
+    except Exception as e:
+        print(f"❌ Failed to create notification: {e}")
+
+@admin_routes.route("/admin/notifications", methods=["GET"])
+@admin_required
+def get_notifications():
+    """Get notifications for admin panel"""
+    try:
+        import pytz
+        
+        # Optional filter for unread only
+        unread_only = request.args.get('unread', 'false').lower() == 'true'
+        
+        # Build query
+        query = {}
+        if unread_only:
+            query['read'] = False
+        
+        # Fetch notifications (last 50, sorted by newest first)
+        notifications_cursor = notifications_collection.find(query).sort([('timestamp', -1)]).limit(50)
+        
+        notifications = []
+        ist = pytz.timezone('Asia/Kolkata')
+        
+        for notif in notifications_cursor:
+            # Convert timestamp to IST
+            ts = notif.get('timestamp')
+            if ts:
+                if hasattr(ts, 'replace'):
+                    if ts.tzinfo is None:
+                        ts_utc = pytz.utc.localize(ts)
+                    else:
+                        ts_utc = ts
+                    ts_ist = ts_utc.astimezone(ist)
+                    time_str = ts_ist.strftime('%I:%M %p, %d %b')
+                else:
+                    time_str = str(ts)
+            else:
+                time_str = 'N/A'
+            
+            notifications.append({
+                '_id': str(notif.get('_id')),
+                'level': notif.get('level', 'info'),
+                'type': notif.get('type', 'system'),
+                'user': notif.get('user', 'SYSTEM'),
+                'message': notif.get('message', ''),
+                'timestamp': time_str,
+                'read': notif.get('read', False)
+            })
+        
+        return jsonify({"notifications": notifications}), 200
+        
+    except Exception as e:
+        print(f"Error fetching notifications: {e}")
+        return jsonify({"error": str(e), "notifications": []}), 500
+
+@admin_routes.route("/admin/notifications/count", methods=["GET"])
+@admin_required
+def get_notifications_count():
+    """Get count of unread notifications"""
+    try:
+        unread_count = notifications_collection.count_documents({"read": False})
+        return jsonify({"count": unread_count}), 200
+    except Exception as e:
+        print(f"Error counting notifications: {e}")
+        return jsonify({"error": str(e), "count": 0}), 500
+
+@admin_routes.route("/admin/notifications/mark-read", methods=["POST"])
+@admin_required
+def mark_notifications_read():
+    """Mark notification(s) as read"""
+    try:
+        data = request.get_json() or {}
+        notification_id = data.get('id')
+        mark_all = data.get('all', False)
+        
+        if mark_all:
+            # Mark all notifications as read
+            result = notifications_collection.update_many(
+                {"read": False},
+                {"$set": {"read": True}}
+            )
+            return jsonify({
+                "message": f"Marked {result.modified_count} notifications as read",
+                "count": result.modified_count
+            }), 200
+        elif notification_id:
+            # Mark specific notification as read
+            try:
+                oid = ObjectId(notification_id)
+                result = notifications_collection.update_one(
+                    {"_id": oid},
+                    {"$set": {"read": True}}
+                )
+                if result.modified_count > 0:
+                    return jsonify({"message": "Notification marked as read"}), 200
+                else:
+                    return jsonify({"message": "Notification not found or already read"}), 404
+            except Exception:
+                return jsonify({"message": "Invalid notification ID"}), 400
+        else:
+            return jsonify({"message": "Please provide 'id' or set 'all' to true"}), 400
+            
+    except Exception as e:
+        print(f"Error marking notifications as read: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 @admin_routes.route('/admin/clients', methods=['GET'])
 @admin_required
@@ -318,16 +550,34 @@ def admin_update_client(id):
 @admin_required
 def admin_logs():
     """Return network activity logs from the detections collection"""
+    import pytz
+    
     logs = []
     
     # Get detections from the detections collection
     if 'detections' in db.list_collection_names():
         detections_cursor = db['detections'].find().sort([('timestamp', -1)]).limit(100)
+        
+        # Setup IST timezone
+        ist = pytz.timezone('Asia/Kolkata')
+        
         for d in detections_cursor:
-            # Format timestamp
+            # Format timestamp with timezone conversion
             ts = d.get('timestamp')
             if ts:
-                time_str = ts.strftime('%I:%M:%S %p') if hasattr(ts, 'strftime') else str(ts)
+                if hasattr(ts, 'strftime'):
+                    # Convert UTC to IST
+                    if ts.tzinfo is None:
+                        # Assume UTC if naive datetime
+                        ts_utc = pytz.utc.localize(ts)
+                    else:
+                        ts_utc = ts
+                    
+                    # Convert to IST
+                    ts_ist = ts_utc.astimezone(ist)
+                    time_str = ts_ist.strftime('%I:%M:%S %p')
+                else:
+                    time_str = str(ts)
             else:
                 time_str = 'N/A'
             

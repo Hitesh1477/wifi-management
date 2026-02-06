@@ -76,6 +76,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (trafficInterval) clearInterval(trafficInterval);
         if (myTrafficChart) myTrafficChart.destroy();
         
+        // Clean up dashboard refresh interval when leaving dashboard
+        if (window.dashboardRefreshInterval) {
+            clearInterval(window.dashboardRefreshInterval);
+            window.dashboardRefreshInterval = null;
+        }
+        
         try {
             contentArea.innerHTML = `<div class="loading-spinner"></div>`;
             const response = await fetch(`pages/${pageName}.html`);
@@ -99,66 +105,242 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // --- Notification Functions ---
+    
+    async function loadNotifications() {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return;
+        
+        try {
+            const response = await fetch('/api/admin/notifications', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (!response.ok) {
+                console.error('Failed to fetch notifications');
+                return;
+            }
+            
+            const data = await response.json();
+            const notifications = data.notifications || [];
+            
+            // Update notification list
+            if (notificationList) {
+                notificationList.innerHTML = '';
+                
+                if (notifications.length === 0) {
+                    const li = document.createElement('li');
+                    li.textContent = 'No new notifications';
+                    li.style.color = '#999';
+                    notificationList.appendChild(li);
+                } else {
+                    notifications.forEach(notif => {
+                        const li = document.createElement('li');
+                        li.className = 'notification-item';
+                        
+                        // Determine icon and color based on level
+                        let icon = 'fa-circle-info';
+                        let levelClass = 'notif-info';
+                        
+                        if (notif.level === 'warn') {
+                            icon = 'fa-triangle-exclamation';
+                            levelClass = 'notif-warn';
+                        } else if (notif.level === 'error') {
+                            icon = 'fa-circle-exclamation';
+                            levelClass = 'notif-error';
+                        }
+                        
+                        li.innerHTML = `
+                            <div class="notif-content ${levelClass}">
+                                <i class="fa-solid ${icon}"></i>
+                                <div class="notif-text">
+                                    <strong>${notif.level.toUpperCase()}: </strong>${notif.message}
+                                    <div class="notif-meta">${notif.timestamp}</div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        notificationList.appendChild(li);
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
+    }
+    
+    async function updateNotificationBadge() {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return;
+        
+        try {
+            const response = await fetch('/api/admin/notifications/count', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (!response.ok) {
+                console.error('Failed to fetch notification count');
+                return;
+            }
+            
+            const data = await response.json();
+            const count = data.count || 0;
+            
+            // Update badge
+            if (notificationBadge) {
+                if (count > 0) {
+                    notificationBadge.textContent = count > 99 ? '99+' : count;
+                    notificationBadge.classList.remove('hidden');
+                } else {
+                    notificationBadge.classList.add('hidden');
+                }
+            }
+        } catch (error) {
+            console.error('Error updating notification badge:', error);
+        }
+    }
+    
+    async function markAllNotificationsRead() {
+        const token = localStorage.getItem('admin_token');
+        if (!token) return;
+        
+        try {
+            await fetch('/api/admin/notifications/mark-read', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                },
+                body: JSON.stringify({ all: true })
+            });
+            
+            // Update badge after marking as read
+            updateNotificationBadge();
+        } catch (error) {
+            console.error('Error marking notifications as read:', error);
+        }
+    }
+    
+    // Initialize notifications on load
+    loadNotifications();
+    updateNotificationBadge();
+    
+    // Set up auto-refresh for notifications (every 30 seconds)
+    setInterval(() => {
+        // Only refresh if notification tray is NOT open (to avoid UI jarring)
+        if (!notificationTray.classList.contains('active')) {
+            loadNotifications();
+        }
+        updateNotificationBadge();
+    }, 30000);
+
     // --- Page Initializers (These run after a page is loaded) ---
     
     function initDashboard() {
-        const clientCountElement = document.getElementById("client-count");
-        if (clientCountElement) {
-            clientCountElement.textContent = db.clients.filter(c => !c.blocked).length;
-        }
-        const dataCountElement = document.getElementById("data-count");
-        if (dataCountElement) {
-            dataCountElement.textContent = `${db.totalData.toFixed(1)} GB`;
-        }
-        const threatCountElement = document.getElementById("threat-count");
-        if (threatCountElement) {
-            threatCountElement.textContent = db.threatsBlocked;
+        // Clear any existing refresh interval
+        if (window.dashboardRefreshInterval) {
+            clearInterval(window.dashboardRefreshInterval);
         }
         
-        const logBody = document.getElementById("event-log-body");
-        if(logBody) {
-            logBody.innerHTML = "";
-            db.logs.slice(0, 5).forEach(log => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${log.time}</td><td><span class="log-level-${log.level}">${log.level.toUpperCase()}</span></td><td>${log.user}</td><td>${log.action}</td>`;
-                logBody.appendChild(tr);
-            });
+        // Function to load dashboard data
+        async function loadDashboardData() {
+            const token = localStorage.getItem('admin_token');
+            if (!token) {
+                console.error('No admin token found');
+                return;
+            }
+            
+            try {
+                // Fetch dashboard statistics from API
+                const statsResponse = await fetch('/api/admin/dashboard/stats', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                
+                if (!statsResponse.ok) {
+                    console.error('Failed to fetch dashboard stats');
+                    return;
+                }
+                
+                const stats = await statsResponse.json();
+                
+                // Update Active Students count
+                const clientCountElement = document.getElementById("client-count");
+                if (clientCountElement) {
+                    clientCountElement.textContent = stats.active_students || 0;
+                }
+                
+                // Update Total Data usage
+                const dataCountElement = document.getElementById("data-count");
+                if (dataCountElement) {
+                    dataCountElement.textContent = `${stats.total_data_gb || 0} GB`;
+                }
+                
+                // Update Threats Blocked count
+                const threatCountElement = document.getElementById("threat-count");
+                if (threatCountElement) {
+                    threatCountElement.textContent = stats.threats_blocked || 0;
+                }
+                
+                // Update traffic chart if data is available
+                if (stats.traffic_data && myTrafficChart) {
+                    myTrafficChart.data.labels = stats.traffic_data.labels || [];
+                    myTrafficChart.data.datasets[0].data = stats.traffic_data.download || [];
+                    myTrafficChart.data.datasets[1].data = stats.traffic_data.upload || [];
+                    myTrafficChart.update('none'); // Update without animation for smoothness
+                }
+                
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+            }
+            
+            // Load recent event logs
+            try {
+                const logsResponse = await fetch('/api/admin/logs', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                
+                if (logsResponse.ok) {
+                    const logsData = await logsResponse.json();
+                    const logBody = document.getElementById("event-log-body");
+                    
+                    if (logBody && logsData.logs) {
+                        logBody.innerHTML = "";
+                        logsData.logs.slice(0, 5).forEach(log => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `<td>${log.time}</td><td><span class="log-level-${log.level}">${log.level.toUpperCase()}</span></td><td>${log.user}</td><td>${log.action}</td>`;
+                            logBody.appendChild(tr);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading event logs:', error);
+            }
         }
-
+        
+        // Initialize the traffic chart
         const canvas = document.getElementById('traffic-chart-canvas');
         if (canvas) {
             const ctx = canvas.getContext('2d');
-            renderTrafficChart(ctx, /* your chartData */);
+            renderTrafficChart(ctx);
         }
-
-        trafficInterval = setInterval(() => {
-            const newDownload = Math.floor(Math.random() * 400) + 100;
-            const newUpload = Math.floor(Math.random() * 50) + 30;
-            const newLabel = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            if (myTrafficChart) {
-                myTrafficChart.data.labels.push(newLabel);
-                myTrafficChart.data.datasets[0].data.push(newDownload);
-                myTrafficChart.data.datasets[1].data.push(newUpload);
-                myTrafficChart.data.labels.shift();
-                myTrafficChart.data.datasets[0].data.shift();
-                myTrafficChart.data.datasets[1].data.shift();
-                myTrafficChart.update();
-            }
-            
-            db.totalData += Math.random() * 0.5;
-            if (dataCountElement) {
-                dataCountElement.textContent = `${db.totalData.toFixed(1)} GB`;
-            }
-
-            if (Math.random() < 0.3) {
-                db.threatsBlocked++;
-                if (threatCountElement) {
-                    threatCountElement.textContent = db.threatsBlocked;
+        
+        // Load initial data
+        loadDashboardData();
+        
+        // Set up auto-refresh every 5 seconds
+        window.dashboardRefreshInterval = setInterval(() => {
+            // Only refresh if we're still on the dashboard page
+            const dashboardPage = document.getElementById('dashboard-page');
+            if (dashboardPage && dashboardPage.parentElement) {
+                loadDashboardData();
+            } else {
+                // Clean up if user navigated away
+                if (window.dashboardRefreshInterval) {
+                    clearInterval(window.dashboardRefreshInterval);
+                    window.dashboardRefreshInterval = null;
                 }
-                const randomUser = db.clients[Math.floor(Math.random() * db.clients.length)];
-                addLog('error', randomUser.studentId, 'Blocked access to Proxy/VPN');
             }
-        }, 2000);
+        }, 5000); // Refresh every 5 seconds
     }
 
     function initClients() {
@@ -457,6 +639,10 @@ document.addEventListener("DOMContentLoaded", () => {
             notificationTray.classList.toggle('active');
             notificationBadge.classList.add('hidden');
             profileDropdown.classList.remove('active');
+            // Mark all notifications as read when dropdown is opened
+            if (notificationTray.classList.contains('active')) {
+                markAllNotificationsRead();
+            }
         } else if (!e.target.closest('.notification-dropdown')) {
             notificationTray.classList.remove('active');
         }
