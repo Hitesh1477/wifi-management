@@ -25,9 +25,9 @@ DOMAIN_APP_MAP = {
     "discord": "Discord",
     
     # Gaming
-    "battlegrounds": "BGMI",
+    "battlegrounds": "Battlegrounds Mobile India",
     "pubg": "PUBG",
-    "bgmi": "BGMI",
+    "bgmi": "Battlegrounds Mobile India",
     "freefire": "Free Fire",
     "garena": "Free Fire",
     "callofduty": "Call of Duty",

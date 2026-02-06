@@ -596,7 +596,7 @@ def admin_logs():
                 'level': level,
                 'user': d.get('roll_no', 'Unknown'),
                 'ip': d.get('client_ip', 'N/A'),
-                'action': f"Accessed {d.get('domain', 'unknown')} ({d.get('app_name', 'Unknown')})",
+                'action': d.get('app_name', 'Unknown'),  # Show just the app name
                 'domain': d.get('domain'),
                 'category': d.get('category', 'general'),
                 'app_name': d.get('app_name', 'Unknown')
