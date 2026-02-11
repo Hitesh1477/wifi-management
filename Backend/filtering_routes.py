@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify
 from db import web_filter_collection
 try:
-    from firewall_manager import update_firewall_rules
+    from linux_firewall_manager import update_firewall_rules
 except ImportError:
     # Graceful fallback if running in non-admin/limited env
     def update_firewall_rules(): pass
+
 
 filtering_blueprint = Blueprint('filtering', __name__)
 

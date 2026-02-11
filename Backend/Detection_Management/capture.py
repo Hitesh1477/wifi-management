@@ -5,7 +5,7 @@ import csv
 from datetime import datetime
 import sys
 
-def start_capture_stream(interface="Wi-Fi"):
+def start_capture_stream(interface="wlan0"):
     try:
         cmd = [
             "tshark", "-i", interface,
@@ -46,7 +46,7 @@ def start_capture_stream(interface="Wi-Fi"):
         print("Download from: https://www.wireshark.org/download.html")
         sys.exit(1)
     except PermissionError:
-        print("❌ Permission denied. Run as Administrator to capture packets")
+        print("❌ Permission denied. Run with sudo to capture packets")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Error starting packet capture: {e}")
