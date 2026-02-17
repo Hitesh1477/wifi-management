@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 class LinuxFirewallManager:
     def __init__(self):
         self.blocked_ips = set()
-        self.hotspot_interface = "wlan0"
-        self.internet_interface = "eth0"  # Change to your internet interface
+        self.authenticated_ips = set()  # Track authenticated users
+        self.hotspot_interface = "wlx782051ac644f"  # USB WiFi adapter
+        self.internet_interface = "wlp0s20f3"  # Built-in WiFi
+        self.hotspot_subnet = "192.168.50.0/24"
+        self.flask_server_ip = "192.168.50.1"
         
     def setup_nat(self):
         """Enable IP forwarding and NAT for hotspot"""
@@ -28,21 +31,35 @@ class LinuxFirewallManager:
             # Flush existing NAT rules
             subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=True)
             subprocess.run(['sudo', 'iptables', '-F'], check=True)
+
+            # Create GLOBAL_BLOCKS chain if it doesn't exist
+            try:
+                subprocess.run(['sudo', 'iptables', '-N', 'GLOBAL_BLOCKS'], check=False)
+            except:
+                pass # Chain likely already exists
             
+            # Flush GLOBAL_BLOCKS
+            subprocess.run(['sudo', 'iptables', '-F', 'GLOBAL_BLOCKS'], check=True)
+
+            # Insert GLOBAL_BLOCKS at the VERY TOP of FORWARD chain
+            # This ensures that ANY blocked IP is dropped immediately,
+            # BEFORE checking if the user is authenticated.
+            subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-j', 'GLOBAL_BLOCKS'], check=True)
+            
+            # 🔒 FORCE LOCAL DNS: Block access to Google/Cloudflare DNS
+            # This prevents users from bypassing dnsmasq by manually setting DNS to 8.8.8.8
+            public_dns = ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]
+            for dns in public_dns:
+                subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-d', dns, '-j', 'DROP'], check=False)
+            logger.info("🔒 Blocking Public DNS (Forces Local Filtering)")
+
             # Set up NAT (masquerading)
             subprocess.run([
                 'sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING',
                 '-o', self.internet_interface, '-j', 'MASQUERADE'
             ], check=True)
             
-            # Allow forwarding from hotspot to internet
-            subprocess.run([
-                'sudo', 'iptables', '-A', 'FORWARD',
-                '-i', self.hotspot_interface, '-o', self.internet_interface,
-                '-j', 'ACCEPT'
-            ], check=True)
-            
-            # Allow established connections back
+            # Allow established connections back (for authenticated users)
             subprocess.run([
                 'sudo', 'iptables', '-A', 'FORWARD',
                 '-i', self.internet_interface, '-o', self.hotspot_interface,
@@ -50,29 +67,54 @@ class LinuxFirewallManager:
                 '-j', 'ACCEPT'
             ], check=True)
             
-            logger.info("NAT setup completed successfully")
+            logger.info("NAT setup completed successfully (with GLOBAL_BLOCKS)")
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to setup NAT: {e}")
             return False
     
     def resolve_domain_ips(self, domain: str) -> Set[str]:
-        """Resolve all IP addresses for a domain"""
+        """Resolve all IP addresses for a domain using multiple methods"""
         ips = set()
         try:
             # Remove protocol if present
             domain = domain.replace('https://', '').replace('http://', '').split('/')[0]
             
-            # Get IP addresses
-            addr_info = socket.getaddrinfo(domain, None)
-            for info in addr_info:
-                ip = info[4][0]
-                if ':' not in ip:  # IPv4 only for now
-                    ips.add(ip)
+            # Method 1: socket.getaddrinfo (Standard)
+            try:
+                addr_info = socket.getaddrinfo(domain, None)
+                for info in addr_info:
+                    ip = info[4][0]
+                    if ':' not in ip:  # IPv4 only for now
+                        ips.add(ip)
+            except Exception:
+                pass
+
+            # Method 2: System 'dig' command (More reliable for multiple A records)
+            try:
+                result = subprocess.run(['dig', '+short', domain], capture_output=True, text=True, timeout=2)
+                for line in result.stdout.splitlines():
+                    ip = line.strip()
+                    if ip and ':' not in ip and ip[0].isdigit():
+                        ips.add(ip)
+            except Exception:
+                pass
             
+            # Method 3: 'nslookup' as backup
+            if not ips:
+                try:
+                    result = subprocess.run(['nslookup', domain], capture_output=True, text=True, timeout=2)
+                    for line in result.stdout.splitlines():
+                        if 'Address: ' in line:
+                            parts = line.split('Address: ')
+                            if len(parts) > 1:
+                                ip = parts[1].strip()
+                                if ':' not in ip and not ip.startswith('127.'): # Ignore blocks/loopback
+                                    ips.add(ip)
+                except Exception:
+                    pass
+
             logger.info(f"Resolved {domain} to IPs: {ips}")
-        except socket.gaierror as e:
-            logger.warning(f"Could not resolve {domain}: {e}")
         except Exception as e:
             logger.error(f"Error resolving {domain}: {e}")
         
@@ -81,16 +123,30 @@ class LinuxFirewallManager:
     def block_ip(self, ip: str):
         """Block a specific IP address using iptables"""
         try:
-            # Block outgoing traffic to this IP
+            # Add to GLOBAL_BLOCKS chain
+            # We use -A (Append) because the chain itself is already at the top of FORWARD
             subprocess.run([
-                'sudo', 'iptables', '-A', 'FORWARD',
-                '-s', '192.168.50.0/24',  # Hotspot subnet
+                'sudo', 'iptables', '-A', 'GLOBAL_BLOCKS',
                 '-d', ip,
                 '-j', 'DROP'
             ], check=True)
             
+            # Also block HTTPS port specifically just in case (TCP)
+            subprocess.run([
+                'sudo', 'iptables', '-A', 'GLOBAL_BLOCKS',
+                '-d', ip, '-p', 'tcp', '--dport', '443',
+                '-j', 'DROP'
+            ], check=True)
+
+            # Block QUIC (UDP 443) - Critical for modern sites/apps
+            subprocess.run([
+                'sudo', 'iptables', '-A', 'GLOBAL_BLOCKS',
+                '-d', ip, '-p', 'udp', '--dport', '443',
+                '-j', 'DROP'
+            ], check=True)
+            
             self.blocked_ips.add(ip)
-            logger.info(f"Blocked IP: {ip}")
+            logger.info(f"🚫 Blocked IP: {ip} (in GLOBAL_BLOCKS)")
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to block IP {ip}: {e}")
@@ -99,17 +155,28 @@ class LinuxFirewallManager:
     def unblock_ip(self, ip: str):
         """Unblock a specific IP address"""
         try:
-            # Remove the DROP rule
+            # Remove from GLOBAL_BLOCKS
             subprocess.run([
-                'sudo', 'iptables', '-D', 'FORWARD',
-                '-s', '192.168.50.0/24',
+                'sudo', 'iptables', '-D', 'GLOBAL_BLOCKS',
                 '-d', ip,
                 '-j', 'DROP'
-            ], check=False)  # Don't fail if rule doesn't exist
+            ], check=False)
+            
+            subprocess.run([
+                'sudo', 'iptables', '-D', 'GLOBAL_BLOCKS',
+                '-d', ip, '-p', 'tcp', '--dport', '443',
+                '-j', 'DROP'
+            ], check=False)
+
+            subprocess.run([
+                'sudo', 'iptables', '-D', 'GLOBAL_BLOCKS',
+                '-d', ip, '-p', 'udp', '--dport', '443',
+                '-j', 'DROP'
+            ], check=False)
             
             if ip in self.blocked_ips:
                 self.blocked_ips.remove(ip)
-            logger.info(f"Unblocked IP: {ip}")
+            logger.info(f"✅ Unblocked IP: {ip}")
             return True
         except Exception as e:
             logger.error(f"Failed to unblock IP {ip}: {e}")
@@ -128,34 +195,22 @@ class LinuxFirewallManager:
             self.unblock_ip(ip)
     
     def clear_filter_rules(self):
-        """Clear all existing filter rules (but keep NAT)"""
+        """Clear all existing filter rules"""
         try:
-            # Get all FORWARD rules with DROP action
-            result = subprocess.run(
-                ['sudo', 'iptables', '-L', 'FORWARD', '--line-numbers', '-n'],
-                capture_output=True, text=True
-            )
-            
-            # Delete DROP rules (in reverse order to maintain line numbers)
-            lines = result.stdout.split('\n')
-            drop_lines = []
-            for line in lines:
-                if 'DROP' in line and line.strip():
-                    parts = line.split()
-                    if parts and parts[0].isdigit():
-                        drop_lines.append(int(parts[0]))
-            
-            for line_num in sorted(drop_lines, reverse=True):
-                subprocess.run(
-                    ['sudo', 'iptables', '-D', 'FORWARD', str(line_num)],
-                    check=False
-                )
+            # Flush GLOBAL_BLOCKS chain
+            subprocess.run(['sudo', 'iptables', '-F', 'GLOBAL_BLOCKS'], check=True)
             
             self.blocked_ips.clear()
-            logger.info("Cleared all filter rules")
+            logger.info("Cleared all filter rules (flushed GLOBAL_BLOCKS)")
             return True
         except Exception as e:
             logger.error(f"Failed to clear filter rules: {e}")
+            # If chain doesn't exist, try creating it
+            try:
+                subprocess.run(['sudo', 'iptables', '-N', 'GLOBAL_BLOCKS'], check=False)
+                subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-j', 'GLOBAL_BLOCKS'], check=False)
+            except:
+                pass
             return False
     
     def update_from_database(self):
@@ -211,6 +266,65 @@ class LinuxFirewallManager:
                 logger.error(f"Failed to save rules: {e}")
                 return False
     
+    def reset_firewall(self):
+        """Reset all firewall rules to default state (block everything)"""
+        try:
+            # Flus filter rules
+            subprocess.run(['sudo', 'iptables', '-F'], check=True)
+            subprocess.run(['sudo', 'iptables', '-X'], check=True)
+            
+            # Flush GLOBAL_BLOCKS if exists
+            try:
+                subprocess.run(['sudo', 'iptables', '-F', 'GLOBAL_BLOCKS'], check=False)
+                subprocess.run(['sudo', 'iptables', '-X', 'GLOBAL_BLOCKS'], check=False)
+            except:
+                pass
+
+            # Flush NAT rules
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=True)
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-X'], check=True)
+            
+            # Default policies
+            subprocess.run(['sudo', 'iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
+            subprocess.run(['sudo', 'iptables', '-P', 'FORWARD', 'DROP'], check=True)
+            subprocess.run(['sudo', 'iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
+            
+            self.blocked_ips.clear()
+            self.authenticated_ips.clear()
+            logger.info("✅ Firewall reset to default state")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reset firewall: {e}")
+            return False
+
+    def setup_captive_portal_redirection(self):
+        """Redirect unauthenticated HTTP traffic to Flask server"""
+        try:
+            # Allow DNS requests to local dnsmasq
+            subprocess.run([
+                'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
+                '-i', self.hotspot_interface,
+                '-p', 'udp', '--dport', '53',
+                '-j', 'ACCEPT'
+            ], check=True)
+            
+            # Redirect HTTP (80) to Flask (5000)
+            subprocess.run([
+                'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
+                '-i', self.hotspot_interface,
+                '-p', 'tcp', '--dport', '80',
+                '-j', 'REDIRECT', '--to-port', '5000'
+            ], check=True)
+            
+            # Note: We cannot easily redirect HTTPS (443) without SSL errors
+            # Using DNS spoofing (dnsmasq) is preferred for blocking HTTPS domains
+            
+            logger.info("✅ Captive portal redirection configured")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to setup redirection: {e}")
+            return False
+            
     def get_blocked_ips_count(self) -> Dict:
         """Get statistics about blocked IPs"""
         return {
@@ -237,11 +351,117 @@ def update_firewall_rules():
         manager.save_rules()
     return success
 
-def setup_hotspot_firewall():
-    """Initial setup for hotspot firewall"""
+def setup_captive_portal():
+    """Setup captive portal - block all traffic except to Flask server for unauthenticated users"""
     manager = get_firewall_manager()
-    manager.setup_nat()
-    manager.update_from_database()
+    
+    try:
+        # Setup NAT first
+        manager.setup_nat()
+        
+        # Setup Redirection to Captive Portal
+        manager.setup_captive_portal_redirection()
+        
+        # Allow DNS queries (FORWARD chain - required for captive portal detection)
+        subprocess.run([
+            'sudo', 'iptables', '-A', 'FORWARD',
+            '-i', manager.hotspot_interface,
+            '-p', 'udp', '--dport', '53',
+            '-j', 'ACCEPT'
+        ], check=True)
+        
+        # Allow DNS responses
+        subprocess.run([
+            'sudo', 'iptables', '-A', 'FORWARD',
+            '-i', manager.hotspot_interface,
+            '-p', 'udp', '--sport', '53',
+            '-j', 'ACCEPT'
+        ], check=True)
+        
+        # Allow DHCP
+        subprocess.run([
+            'sudo', 'iptables', '-A', 'FORWARD',
+            '-i', manager.hotspot_interface,
+            '-p', 'udp', '--dport', '67:68',
+            '-j', 'ACCEPT'
+        ], check=True)
+        
+        # Allow traffic to Flask server (port 5000) on hotspot IP - INPUT chain
+        subprocess.run([
+            'sudo', 'iptables', '-I', 'INPUT', '1',
+            '-i', manager.hotspot_interface,
+            '-p', 'tcp', '--dport', '5000',
+            '-j', 'ACCEPT'
+        ], check=True)
+        
+        # ⭐ CRITICAL: Block all internet traffic from unauthenticated users
+        # This blocks ALL apps (Instagram, Snapchat, etc.) and websites before login
+        # Authenticated users bypass this via rules inserted by allow_authenticated_user()
+        subprocess.run([
+            'sudo', 'iptables', '-A', 'FORWARD',
+            '-i', manager.hotspot_interface,
+            '-o', manager.internet_interface,
+            '-j', 'DROP'
+        ], check=True)
+        
+        manager.update_from_database()
+
+        logger.info("✅ Captive portal firewall configured - all internet traffic blocked before auth")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to setup captive portal: {e}")
+        return False
+
+def allow_authenticated_user(client_ip: str):
+    """Allow internet access for authenticated user"""
+    manager = get_firewall_manager()
+    
+    try:
+        # ⭐ INSERT at position 2 (After GLOBAL_BLOCKS but before DROP rules)
+        # Position 1 is strictly for GLOBAL_BLOCKS
+        subprocess.run([
+            'sudo', 'iptables', '-I', 'FORWARD', '2',
+            '-s', client_ip,
+            '-i', manager.hotspot_interface,
+            '-o', manager.internet_interface,
+            '-j', 'ACCEPT'
+        ], check=True)
+        
+        manager.authenticated_ips.add(client_ip)
+        logger.info(f"✅ Allowed internet access for {client_ip}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to allow user {client_ip}: {e}")
+        return False
+
+def block_authenticated_user(client_ip: str):
+    """Remove internet access for user (on logout)"""
+    manager = get_firewall_manager()
+    
+    try:
+        # Remove the ACCEPT rule for this IP
+        subprocess.run([
+            'sudo', 'iptables', '-D', 'FORWARD',
+            '-s', client_ip,
+            '-i', manager.hotspot_interface,
+            '-o', manager.internet_interface,
+            '-j', 'ACCEPT'
+        ], check=False)  # Don't fail if rule doesn't exist
+        
+        if client_ip in manager.authenticated_ips:
+            manager.authenticated_ips.remove(client_ip)
+        logger.info(f"✅ Blocked internet access for {client_ip}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to block user {client_ip}: {e}")
+        return False
+
+def setup_hotspot_firewall():
+    """Initial setup for hotspot firewall with captive portal"""
+    # This MUST call setup_captive_portal() to ensure the DROP rules are applied!
+    setup_captive_portal()
+    
+    manager = get_firewall_manager()
     manager.save_rules()
 
 

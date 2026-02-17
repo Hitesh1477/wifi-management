@@ -6,6 +6,14 @@ import jwt
 import datetime
 import socket
 
+# Import firewall functions for captive portal
+try:
+    from linux_firewall_manager import allow_authenticated_user, block_authenticated_user
+    FIREWALL_ENABLED = True
+except ImportError:
+    print("⚠️ Firewall manager not available")
+    FIREWALL_ENABLED = False
+
 auth_routes = Blueprint("auth_routes", __name__)
 
 SECRET_KEY = "your-secret-key"
@@ -114,6 +122,14 @@ def login():
         upsert=True
     )
     print(f"✅ Session created: {roll_no} -> {client_ip}")
+    
+    # ✅ Enable internet access for this user (captive portal)
+    if FIREWALL_ENABLED and client_ip.startswith("192.168.50."):
+        try:
+            allow_authenticated_user(client_ip)
+            print(f"✅ Internet access enabled for {client_ip}")
+        except Exception as e:
+            print(f"⚠️ Failed to enable firewall access: {e}")
 
     token = jwt.encode({
         "roll_no": roll_no,
@@ -136,6 +152,21 @@ def logout():
     roll_no = data.get("roll_no")
     
     if roll_no:
+        # Get the session to find client IP
+        session = sessions_collection.find_one({"roll_no": roll_no})
+        
+        if session:
+            client_ip = session.get("client_ip")
+            
+            # ✅ Revoke internet access (captive portal)
+            if FIREWALL_ENABLED and client_ip and client_ip.startswith("192.168.50."):
+                try:
+                    block_authenticated_user(client_ip)
+                    print(f"✅ Internet access revoked for {client_ip}")
+                except Exception as e:
+                    print(f"⚠️ Failed to revoke firewall access: {e}")
+        
+        # Delete session
         sessions_collection.delete_one({"roll_no": roll_no})
         print(f"✅ Session deleted: {roll_no}")
         return jsonify({"status": "success", "msg": "Logout successful"}), 200

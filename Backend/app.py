@@ -137,5 +137,47 @@ def api_status():
 # --------------------------------------------------
 # ✅ RUN SERVER (LAN HOSTING)
 # --------------------------------------------------
+# --------------------------------------------------
+# ✅ RUN SERVER (LAN HOSTING)
+# --------------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    try:
+        from linux_firewall_manager import setup_hotspot_firewall
+        import subprocess
+        
+        print("🔥 Initializing Firewall Rules...")
+        setup_hotspot_firewall()
+        
+        # Disable IPv6 on hotspot interface to prevent bypass
+        try:
+            subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv6.conf.all.disable_ipv6=1'], check=False)
+            subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv6.conf.default.disable_ipv6=1'], check=False)
+            subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv6.conf.wlx782051ac644f.disable_ipv6=1'], check=False)
+            print("🔒 IPv6 Disabled (Prevents Bypass)")
+        except Exception as e:
+            print(f"⚠️ Failed to disable IPv6: {e}")
+            
+        # 🚨 EMERGENCY: Explicitly block known evasive IPs for slowroads.io
+        try:
+            slowroads_ips = [
+                "104.26.7.92", "104.26.6.92", "172.67.70.173", # Cloudflare
+                "76.76.21.21" # Vercel/common
+            ]
+            for ip in slowroads_ips:
+                subprocess.run(['sudo', 'iptables', '-A', 'GLOBAL_BLOCKS', '-d', ip, '-j', 'DROP'], check=False)
+                subprocess.run(['sudo', 'iptables', '-A', 'GLOBAL_BLOCKS', '-d', ip, '-p', 'udp', '--dport', '443', '-j', 'DROP'], check=False)
+            
+            # Block Public DNS here too
+            public_dns = ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]
+            for dns in public_dns:
+                subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-d', dns, '-j', 'DROP'], check=False)
+                
+            print(f"🔒 Added emergency blocks for slowroads.io ({len(slowroads_ips)} IPs, TCP+UDP)")
+        except Exception:
+            pass
+            
+        print("✅ Firewall Rules Applied")
+    except Exception as e:
+        print(f"⚠️ Firewall Init Failed: {e}")
+        
+    app.run(host="0.0.0.0", port=5000, debug=False) # Disable debug to prevent double-execution on reload

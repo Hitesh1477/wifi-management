@@ -12,6 +12,7 @@ DOMAIN_APP_MAP = {
     # Social
     "instagram": "Instagram",
     "facebook": "Facebook",
+    "fbcdn": "Facebook",
     "twitter": "Twitter",
     "linkedin": "LinkedIn",
     "pinterest": "Pinterest",
@@ -24,10 +25,15 @@ DOMAIN_APP_MAP = {
     "telegram": "Telegram",
     "discord": "Discord",
     
-    # Gaming
-    "battlegrounds": "Battlegrounds Mobile India",
+    # Gaming - BGMI/PUBG
+    "battlegrounds": "BGMI",
     "pubg": "PUBG",
-    "bgmi": "Battlegrounds Mobile India",
+    "bgmi": "BGMI",
+    "globh.com": "BGMI",  # Krafton/BGMI servers
+    "krafton": "BGMI",
+    "proximabeta": "BGMI",
+    
+    # Gaming - Other
     "freefire": "Free Fire",
     "garena": "Free Fire",
     "callofduty": "Call of Duty",
@@ -49,8 +55,33 @@ DOMAIN_APP_MAP = {
     "bing.com": "Bing Search",
     "duckduckgo": "DuckDuckGo",
     
-    # System
-    "play.googleapis.com": "Google Play Store"
+    # Google Services
+    "play.googleapis.com": "Google Play Store",
+    "play-fe.googleapis.com": "Google Play Services",
+    "googleapis.com": "Google Services",
+    "android.googleapis.com": "Google Services",
+    "gstatic.com": "Google Services",
+    "doubleclick.net": "Google Ads",
+    "app-measurement.com": "Google Analytics",
+    
+    # Music
+    "spotify": "Spotify",
+    "apresolve.spotify": "Spotify",
+    "gaana": "Gaana",
+    "jiosaavn": "JioSaavn",
+    "wynk": "Wynk Music",
+    
+    # Other Apps
+    "adjust.net": "App Analytics",
+    "quizizz": "Quizizz",
+    "listdl.com": "File Sharing",
+    "memex-pa": "Google Services",
+    "scorecardresearch": "Analytics",
+    
+    # System/OEM
+    "heytapmobile.com": "Oppo Services",
+    "allawnos.com": "Oppo Services",
+    "coloros.com": "Oppo Services"
 }
 
 def get_app_name(domain: str) -> str:

@@ -1,0 +1,6 @@
+# Allow user to run iptables commands for WiFi management without password
+nikhil ALL=(ALL) NOPASSWD: /usr/sbin/iptables
+nikhil ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hostapd
+nikhil ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart dnsmasq
+nikhil ALL=(ALL) NOPASSWD: /usr/bin/systemctl status hostapd
+nikhil ALL=(ALL) NOPASSWD: /usr/bin/systemctl status dnsmasq

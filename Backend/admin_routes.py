@@ -9,6 +9,7 @@ from bson.objectid import ObjectId
 import pandas as pd
 import io
 import threading
+from linux_firewall_manager import update_firewall_rules
 
 # [OK] MongoDB
 client = MongoClient("mongodb://localhost:27017/")
@@ -814,11 +815,13 @@ DEFAULT_CATEGORIES = {
     },
 
     "Streaming": {
-
         "active": False,
-
-        "sites": ["netflix.com", "hulu.com", "disneyplus.com", "hbomax.com", "primevideo.com", "spotify.com", "peacocktv.com"]
-
+        "sites": [
+            "netflix.com", "nflxvideo.net", "hulu.com", "disneyplus.com", "hbomax.com", "primevideo.com", 
+            "spotify.com", "peacocktv.com", "sonyliv.com", "sonylivauth.com", 
+            "hotstar.com", "api.hotstar.com", "zee5.com", "voot.com" 
+            # Note: youtube.com is explicitly EXCLUDED
+        ]
     },
 
     "File Sharing": {
@@ -830,12 +833,13 @@ DEFAULT_CATEGORIES = {
     },
 
     "Proxy/VPN": {
-
         "active": True,
-
         "sites": ["nordvpn.com", "expressvpn.com", "hidemyass.com", "proxysite.com", "cyberghostvpn.com", "surfshark.com", "privateinternetaccess.com", "protonvpn.me", "tunnelbear.com"]
-
-    }
+    },
+    "Messaging": {
+         "active": False,
+         "sites": ["whatsapp.com", "telegram.org", "discord.gg", "signal.org"]
+    },
 
 }
 
@@ -890,55 +894,45 @@ def get_filtering():
 
 
 @admin_routes.route('/admin/filtering/categories', methods=['POST'])
-
 @admin_required
-
 def toggle_category():
-
     data = request.get_json()
-
     category = data.get("category")
-
     
-
     if not category:
-
         return jsonify({"message": "Category required"}), 400
-
         
-
     _refresh_web_filter_defaults()
-
     config = web_filter_collection.find_one({"type": "config"})
-
     
-
     categories = config.get("categories", {})
-
     if category not in categories:
-
         return jsonify({"message": "Category not found"}), 404
-
         
-
     # Toggle
-
     current_status = categories[category]["active"]
-
     new_status = not current_status
-
     
-
     web_filter_collection.update_one(
-
         {"type": "config"},
-
         {"$set": {f"categories.{category}.active": new_status}}
-
     )
-
     
-
+    # Update DNS blocklist immediately
+    try:
+        from dns_filtering_manager import update_dnsmasq_blocklist
+        print(f"\n🔄 {'Enabling' if new_status else 'Disabling'} {category} category via DNS...")
+        update_dnsmasq_blocklist()
+        print(f"✅ DNS blocklist updated")
+        
+        # Update Firewall rules (IP Blocking)
+        print(f"🔄 Updating Firewall rules...")
+        update_firewall_rules()
+        print(f"✅ Firewall rules updated")
+        
+    except Exception as e:
+        print(f"⚠️ Update failed: {e}")
+    
     return jsonify({"message": "Updated", "active": new_status}), 200
 
 
@@ -965,31 +959,23 @@ def add_blocked_site():
         {"$push": {"manual_blocks": url}}
     )
     
-    # NEW: Create firewall rules in background
-    if FIREWALL_AVAILABLE:
-        def create_firewall_rules_async(domain):
-            try:
-                print(f"\n🔄 Creating firewall rules for {domain}...")
-                ips = resolve_domain_to_ips(domain)
-                if ips:
-                    success, msg, count = block_domain(domain, ips)
-                    if success:
-                        print(f"✅ Firewall: {msg}")
-                    else:
-                        print(f"❌ Firewall: {msg}")
-                else:
-                    print(f"⚠️  No IPs found for {domain}")
-            except Exception as e:
-                print(f"❌ Firewall error: {e}")
+    # Update DNS blocklist immediately
+    try:
+        from dns_filtering_manager import update_dnsmasq_blocklist
+        from linux_firewall_manager import update_firewall_rules
         
-        # Run in background thread so API responds quickly
-        thread = threading.Thread(target=create_firewall_rules_async, args=(url,))
-        thread.daemon = True
-        thread.start()
+        print(f"\n🔄 Blocking {url} via DNS...")
+        update_dnsmasq_blocklist()
+        print(f"✅ DNS blocklist updated")
         
-        return jsonify({"message": f"Site blocked via firewall ({url})"}), 201
-    else:
-        return jsonify({"message": "Site blocked (firewall unavailable)"}), 201
+        print(f"🔄 Blocking {url} via Firewall (IPs)...")
+        update_firewall_rules()
+        print(f"✅ Firewall rules updated")
+        
+        return jsonify({"message": f"Site blocked: {url}"}), 201
+    except Exception as e:
+        print(f"⚠️ Update failed: {e}")
+        return jsonify({"message": "Site added to database but update failed"}), 201
 
 
 
@@ -1010,23 +996,20 @@ def remove_blocked_site():
         {"$pull": {"manual_blocks": url}}
     )
     
-    # NEW: Remove firewall rules in background
-    if FIREWALL_AVAILABLE:
-        def remove_firewall_rules_async(domain):
-            try:
-                print(f"\n🔄 Removing firewall rules for {domain}...")
-                success, msg = unblock_domain(domain)
-                if success:
-                    print(f"✅ Firewall: {msg}")
-                else:
-                    print(f"❌ Firewall: {msg}")
-            except Exception as e:
-                print(f"❌ Firewall error: {e}")
+    # Update DNS blocklist immediately
+    try:
+        from dns_filtering_manager import update_dnsmasq_blocklist
+        from linux_firewall_manager import update_firewall_rules
         
-        thread = threading.Thread(target=remove_firewall_rules_async, args=(url,))
-        thread.daemon = True
-        thread.start()
+        print(f"\n🔄 Unblocking {url} via DNS...")
+        update_dnsmasq_blocklist()
+        print(f"✅ DNS blocklist updated")
         
-        return jsonify({"message": f"Site unblocked via firewall ({url})"}), 200
-    else:
-        return jsonify({"message": "Site unblocked (firewall unavailable)"}), 200
+        print(f"🔄 Unblocking {url} via Firewall...")
+        update_firewall_rules()
+        print(f"✅ Firewall rules updated")
+        
+        return jsonify({"message": f"Site unblocked: {url}"}), 200
+    except Exception as e:
+        print(f"⚠️ Update failed: {e}")
+        return jsonify({"message": "Site removed from database but update failed"}), 200
