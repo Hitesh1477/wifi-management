@@ -1,22 +1,124 @@
 from flask import Blueprint, request, jsonify
 from models.user_model import create_user, find_user, validate_user
-from db import users_collection, admins_collection, sessions_collection
+from db import users_collection, admins_collection, sessions_collection, db
 from werkzeug.security import check_password_hash
 import jwt
 import datetime
 import socket
+import os
+import ipaddress
 
 # Import firewall functions for captive portal
+_allow_authenticated_user_fn = None
+_block_authenticated_user_fn = None
+FIREWALL_ENABLED = False
+
 try:
-    from linux_firewall_manager import allow_authenticated_user, block_authenticated_user
+    from linux_firewall_manager import (
+        allow_authenticated_user as _allow_authenticated_user_fn,
+        block_authenticated_user as _block_authenticated_user_fn,
+    )
     FIREWALL_ENABLED = True
 except ImportError:
     print("⚠️ Firewall manager not available")
-    FIREWALL_ENABLED = False
+
+_apply_bandwidth_for_active_users_fn = None
+BANDWIDTH_MANAGEMENT_ENABLED = False
+
+try:
+    import bandwidth_manager
+
+    _apply_bandwidth_for_active_users_fn = bandwidth_manager.apply_bandwidth_for_active_users
+    BANDWIDTH_MANAGEMENT_ENABLED = True
+except ImportError:
+    print("⚠️ Bandwidth manager not available")
 
 auth_routes = Blueprint("auth_routes", __name__)
 
 SECRET_KEY = "your-secret-key"
+
+
+def _get_hotspot_network():
+    subnet = os.environ.get("HOTSPOT_SUBNET", "192.168.50.0/24")
+    try:
+        return ipaddress.ip_network(subnet, strict=False)
+    except Exception:
+        return ipaddress.ip_network("192.168.50.0/24", strict=False)
+
+
+def _is_hotspot_client_ip(client_ip: str) -> bool:
+    if not isinstance(client_ip, str):
+        return False
+    try:
+        return ipaddress.ip_address(client_ip) in _get_hotspot_network()
+    except ValueError:
+        return False
+
+
+def _normalize_utc_naive(value):
+    if not isinstance(value, datetime.datetime):
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def _get_active_block_doc(roll_no: str):
+    blocked_users_col = db["blocked_users"]
+    block_doc = blocked_users_col.find_one({"roll_no": roll_no, "status": "blocked"})
+    if not block_doc:
+        return None
+
+    if block_doc.get("ban_type") == "temporary":
+        expires_at = _normalize_utc_naive(block_doc.get("expires_at"))
+        if expires_at and datetime.datetime.utcnow() >= expires_at:
+            blocked_users_col.update_one(
+                {"_id": block_doc.get("_id")},
+                {
+                    "$set": {
+                        "status": "expired",
+                        "expired_at": datetime.datetime.utcnow(),
+                    }
+                },
+            )
+            return None
+
+    return block_doc
+
+
+def _force_logout_session(roll_no: str, reason: str) -> bool:
+    active_session = sessions_collection.find_one({"roll_no": roll_no, "status": "active"})
+    if not active_session:
+        return False
+
+    client_ip = active_session.get("client_ip")
+
+    if FIREWALL_ENABLED and _block_authenticated_user_fn and _is_hotspot_client_ip(client_ip):
+        try:
+            _block_authenticated_user_fn(client_ip)
+            print(f"✅ Internet access revoked for {client_ip} (security block)")
+        except Exception as e:
+            print(f"⚠️ Failed to revoke firewall access for {client_ip}: {e}")
+
+    sessions_collection.update_many(
+        {"roll_no": roll_no, "status": "active"},
+        {
+            "$set": {
+                "status": "terminated",
+                "logout_reason": "security_block",
+                "logout_message": reason,
+                "logout_at": datetime.datetime.utcnow(),
+            }
+        },
+    )
+
+    if BANDWIDTH_MANAGEMENT_ENABLED and _apply_bandwidth_for_active_users_fn:
+        try:
+            _apply_bandwidth_for_active_users_fn()
+        except Exception as e:
+            print(f"⚠️ Failed to refresh bandwidth policy after forced logout: {e}")
+
+    return True
 
 def get_local_network_ip():
     """Get actual network IP for session tracking"""
@@ -52,9 +154,9 @@ def signup():
 # ---------------- STUDENT LOGIN ----------------
 @auth_routes.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    roll_no = data.get("roll_no")
+    roll_no = (data.get("roll_no") or "").strip()
     password = data.get("password")
 
     user = validate_user(roll_no, password)
@@ -63,9 +165,7 @@ def login():
         return jsonify({"status": "error", "msg": "Invalid credentials"}), 401
 
     # ✅ Check if user is blocked
-    from db import db
-    blocked_users_col = db["blocked_users"]
-    block_doc = blocked_users_col.find_one({"roll_no": roll_no, "status": "blocked"})
+    block_doc = _get_active_block_doc(roll_no)
     
     if block_doc:
         ban_type = block_doc.get("ban_type", "temporary")
@@ -108,7 +208,7 @@ def login():
     if remote_ip in ("127.0.0.1", "::1", "localhost"):
         client_ip = get_local_network_ip()
     else:
-        client_ip = remote_ip
+        client_ip = remote_ip or "unknown"
     
     # ✅ Create/update session for detection tracking
     sessions_collection.update_one(
@@ -117,19 +217,29 @@ def login():
             "roll_no": roll_no,
             "client_ip": client_ip,
             "login_time": datetime.datetime.utcnow(),
-            "status": "active"
+            "status": "active",
+            "logout_reason": None,
+            "logout_message": None,
+            "logout_at": None,
         }},
         upsert=True
     )
     print(f"✅ Session created: {roll_no} -> {client_ip}")
     
     # ✅ Enable internet access for this user (captive portal)
-    if FIREWALL_ENABLED and client_ip.startswith("192.168.50."):
+    if FIREWALL_ENABLED and _allow_authenticated_user_fn and _is_hotspot_client_ip(client_ip):
         try:
-            allow_authenticated_user(client_ip)
+            _allow_authenticated_user_fn(client_ip)
             print(f"✅ Internet access enabled for {client_ip}")
         except Exception as e:
             print(f"⚠️ Failed to enable firewall access: {e}")
+
+    # ✅ Apply bandwidth policy for active users (including this new login)
+    if BANDWIDTH_MANAGEMENT_ENABLED and _apply_bandwidth_for_active_users_fn:
+        try:
+            _apply_bandwidth_for_active_users_fn()
+        except Exception as e:
+            print(f"⚠️ Failed to apply bandwidth policy: {e}")
 
     token = jwt.encode({
         "roll_no": roll_no,
@@ -145,11 +255,53 @@ def login():
     }), 200
 
 
+@auth_routes.route("/session-status", methods=["GET"])
+def session_status():
+    roll_no = (request.args.get("roll_no") or "").strip()
+    if not roll_no:
+        return jsonify({"status": "error", "msg": "Roll number required"}), 400
+
+    block_doc = _get_active_block_doc(roll_no)
+    if block_doc:
+        reason = block_doc.get("reason", "Malicious activity detected")
+        _force_logout_session(roll_no, reason)
+
+        payload = {
+            "status": "success",
+            "session_status": "blocked",
+            "auto_logout": True,
+            "msg": "You have been logged out due to malicious activity.",
+            "reason": reason,
+            "ban_type": block_doc.get("ban_type", "temporary"),
+        }
+
+        expires_at = _normalize_utc_naive(block_doc.get("expires_at"))
+        if block_doc.get("ban_type") == "temporary" and expires_at:
+            payload["expires_at_utc"] = f"{expires_at.isoformat()}Z"
+
+        return jsonify(payload), 200
+
+    active_session = sessions_collection.find_one({"roll_no": roll_no, "status": "active"})
+    if not active_session:
+        return jsonify({
+            "status": "success",
+            "session_status": "logged_out",
+            "auto_logout": True,
+            "msg": "Session ended. Please login again.",
+        }), 200
+
+    return jsonify({
+        "status": "success",
+        "session_status": "active",
+        "auto_logout": False,
+    }), 200
+
+
 # ---------------- STUDENT LOGOUT ----------------
 @auth_routes.route("/logout", methods=["POST"])
 def logout():
-    data = request.get_json()
-    roll_no = data.get("roll_no")
+    data = request.get_json() or {}
+    roll_no = (data.get("roll_no") or "").strip()
     
     if roll_no:
         # Get the session to find client IP
@@ -159,9 +311,9 @@ def logout():
             client_ip = session.get("client_ip")
             
             # ✅ Revoke internet access (captive portal)
-            if FIREWALL_ENABLED and client_ip and client_ip.startswith("192.168.50."):
+            if FIREWALL_ENABLED and _block_authenticated_user_fn and _is_hotspot_client_ip(client_ip):
                 try:
-                    block_authenticated_user(client_ip)
+                    _block_authenticated_user_fn(client_ip)
                     print(f"✅ Internet access revoked for {client_ip}")
                 except Exception as e:
                     print(f"⚠️ Failed to revoke firewall access: {e}")
@@ -169,6 +321,14 @@ def logout():
         # Delete session
         sessions_collection.delete_one({"roll_no": roll_no})
         print(f"✅ Session deleted: {roll_no}")
+
+        # ✅ Refresh bandwidth policies after session removal
+        if BANDWIDTH_MANAGEMENT_ENABLED and _apply_bandwidth_for_active_users_fn:
+            try:
+                _apply_bandwidth_for_active_users_fn()
+            except Exception as e:
+                print(f"⚠️ Failed to refresh bandwidth policy: {e}")
+
         return jsonify({"status": "success", "msg": "Logout successful"}), 200
     
     return jsonify({"status": "error", "msg": "Roll number required"}), 400

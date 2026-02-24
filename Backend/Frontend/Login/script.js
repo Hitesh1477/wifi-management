@@ -1,3 +1,7 @@
+const SESSION_STATUS_POLL_MS = 15000;
+let sessionGuardTimer = null;
+let forcedLogoutInProgress = false;
+
 // ✅ Login Function
 function loginUser() {
     const roll_no = document.getElementById("roll_no").value.trim();
@@ -37,6 +41,7 @@ function loginUser() {
 
 // ✅ Logout function
 function logoutUser() {
+    stopSessionGuard();
     const roll_no = localStorage.getItem("roll_no");
     
     // Clear local storage first
@@ -66,3 +71,53 @@ function logoutUser() {
     }
 }
 
+
+function stopSessionGuard() {
+    if (sessionGuardTimer) {
+        clearInterval(sessionGuardTimer);
+        sessionGuardTimer = null;
+    }
+}
+
+
+function checkSessionStatus() {
+    const roll_no = localStorage.getItem("roll_no");
+    const token = localStorage.getItem("token");
+
+    if (!roll_no || !token || forcedLogoutInProgress) {
+        stopSessionGuard();
+        return;
+    }
+
+    fetch(`/api/auth/session-status?roll_no=${encodeURIComponent(roll_no)}`, {
+        cache: "no-store"
+    })
+    .then(res => res.json().catch(() => ({})))
+    .then(data => {
+        const sessionStatus = data.session_status;
+        if (sessionStatus === "blocked" || sessionStatus === "logged_out") {
+            forcedLogoutInProgress = true;
+            stopSessionGuard();
+
+            const reason = data.reason ? `\nReason: ${data.reason}` : "";
+            const message = data.msg || "Your session was closed. Please login again.";
+            alert(`${message}${reason}`);
+            logoutUser();
+        }
+    })
+    .catch(err => {
+        console.warn("Session status check failed:", err);
+    });
+}
+
+
+function startSessionGuard() {
+    const roll_no = localStorage.getItem("roll_no");
+    const token = localStorage.getItem("token");
+    if (!roll_no || !token) return;
+
+    stopSessionGuard();
+    forcedLogoutInProgress = false;
+    checkSessionStatus();
+    sessionGuardTimer = setInterval(checkSessionStatus, SESSION_STATUS_POLL_MS);
+}

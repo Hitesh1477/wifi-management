@@ -9,7 +9,16 @@ from bson.objectid import ObjectId
 import pandas as pd
 import io
 import threading
+import logging
 from linux_firewall_manager import update_firewall_rules
+from bandwidth_manager import (
+    apply_bandwidth_for_active_users,
+    assign_auto_bandwidth,
+    get_bandwidth_presets,
+    get_user_activity_snapshot,
+    refresh_auto_bandwidth_profiles,
+    resolve_effective_bandwidth,
+)
 
 # [OK] MongoDB
 client = MongoClient("mongodb://localhost:27017/")
@@ -18,6 +27,11 @@ admins_collection = db['admins']
 users_collection = db['users']
 web_filter_collection = db['web_filter']
 notifications_collection = db['notifications']
+logger = logging.getLogger(__name__)
+
+
+def _medium_preset_mbps() -> int:
+    return int(get_bandwidth_presets().get("medium", 5))
 
 # [OK] Middleware for token check
 def admin_required(f):
@@ -57,6 +71,45 @@ def _find_user_by_mixed_id(id):
         return doc
     doc = users_collection.find_one({"roll_no": id})
     return doc
+
+
+def _build_fallback_auto_recommendation(roll_no, reason=""):
+    """Fallback recommendation when ML/activity detection is unavailable."""
+    explanation = "ML/activity recommendation unavailable; applying MEDIUM baseline tier."
+    if reason:
+        explanation = f"{explanation} Reason: {reason}"
+
+    recommendation = {
+        "roll_no": roll_no,
+        "tier": "medium",
+        "confidence": 0.0,
+        "recommended_mbps": _medium_preset_mbps(),
+        "detected_activity": "General Browsing",
+        "dominant_category": "general",
+        "total_requests": 0,
+        "explanation": explanation,
+        "fallback": True,
+    }
+
+    try:
+        users_collection.update_one(
+            {"roll_no": str(roll_no)},
+            {
+                "$set": {
+                    "bandwidth_limit": "auto",
+                    "bandwidth_auto_assigned": "medium",
+                    "bandwidth_auto_confidence": 0.0,
+                    "bandwidth_last_updated": datetime.datetime.utcnow(),
+                    "detected_activity": "General Browsing",
+                    "activity_category": "general",
+                    "activity_total_requests": 0,
+                }
+            },
+        )
+    except Exception as db_error:
+        logger.warning("Failed to persist fallback auto bandwidth for %s: %s", roll_no, db_error)
+
+    return recommendation
 
 # [OK] Admin Login
 @admin_routes.route('/admin/login', methods=['POST'])
@@ -439,10 +492,34 @@ def admin_clients():
             else:
                 c['activity'] = c.get('activity', 'Idle')
                 c['data_usage'] = 0
+
+            # Activity-aware enrichment for bandwidth page
+            try:
+                if roll_no:
+                    snapshot = get_user_activity_snapshot(roll_no, window_minutes=120)
+                    if snapshot.get('total_requests', 0) > 0:
+                        c['detected_activity'] = snapshot.get('detected_activity')
+                        c['activity_category'] = snapshot.get('dominant_category', 'general')
+                        c['activity'] = snapshot.get('detected_activity', c.get('activity', 'Idle'))
+                    else:
+                        c['detected_activity'] = c.get('activity', 'Idle')
+                else:
+                    c['detected_activity'] = c.get('activity', 'Idle')
+            except Exception:
+                c['detected_activity'] = c.get('activity', 'Idle')
+
+            # Resolve effective bandwidth (preset/manual/auto)
+            policy = resolve_effective_bandwidth(c)
+            c['bandwidth_mode'] = policy.get('mode', 'preset')
+            c['bandwidth_effective_tier'] = policy.get('tier', 'medium')
+            c['bandwidth_effective_mbps'] = policy.get('effective_mbps', _medium_preset_mbps())
             
             clients.append(c)
         
-        return jsonify({"clients": clients}), 200
+        return jsonify({
+            "clients": clients,
+            "bandwidth_presets": get_bandwidth_presets(),
+        }), 200
     except Exception as e:
         print(f"Error in admin_clients: {e}")
         return jsonify({"error": str(e), "clients": []}), 500
@@ -465,6 +542,9 @@ def admin_add_client():
         "role": "student",
         "blocked": False,
         "activity": activity,
+        "bandwidth_limit": "medium",
+        "bandwidth_effective_tier": "medium",
+        "bandwidth_effective_mbps": _medium_preset_mbps(),
     }
     if password:
         doc["password"] = generate_password_hash(password)
@@ -492,6 +572,8 @@ def admin_update_client(id):
     data = request.get_json() or {}
 
     updates = {}
+    unset_fields = {}
+    bandwidth_updated = False
     if 'roll_no' in data and isinstance(data['roll_no'], str) and data['roll_no'].strip():
         new_roll = data['roll_no'].strip()
         # prevent duplicate roll_no
@@ -534,17 +616,167 @@ def admin_update_client(id):
     if 'activity' in data and isinstance(data['activity'], str):
         updates['activity'] = data['activity']
 
-    # Handle bandwidth_limit - can be string (preset) or number (custom Mbps)
+    # Handle bandwidth_limit modes: low/medium/high/manual/auto
     if 'bandwidth_limit' in data:
-        updates['bandwidth_limit'] = data['bandwidth_limit']
+        raw_limit = data['bandwidth_limit']
 
-    if not updates:
+        if isinstance(raw_limit, (int, float)):
+            updates['bandwidth_limit'] = 'manual'
+            updates['bandwidth_custom_value'] = min(500, max(1, int(float(raw_limit))))
+            unset_fields['bandwidth_auto_assigned'] = ''
+            unset_fields['bandwidth_auto_confidence'] = ''
+            bandwidth_updated = True
+        elif isinstance(raw_limit, str):
+            normalized_limit = raw_limit.strip().lower()
+            if normalized_limit not in ('low', 'medium', 'high', 'manual', 'auto'):
+                return jsonify({"message": "Invalid bandwidth_limit value"}), 400
+
+            updates['bandwidth_limit'] = normalized_limit
+            bandwidth_updated = True
+
+            if normalized_limit == 'manual':
+                custom_value = data.get('bandwidth_custom_value', doc.get('bandwidth_custom_value', 50))
+                try:
+                    updates['bandwidth_custom_value'] = min(500, max(1, int(float(custom_value))))
+                except (TypeError, ValueError):
+                    return jsonify({"message": "Invalid bandwidth_custom_value"}), 400
+                unset_fields['bandwidth_auto_assigned'] = ''
+                unset_fields['bandwidth_auto_confidence'] = ''
+            elif normalized_limit == 'auto':
+                unset_fields['bandwidth_custom_value'] = ''
+            else:
+                unset_fields['bandwidth_custom_value'] = ''
+                unset_fields['bandwidth_auto_assigned'] = ''
+                unset_fields['bandwidth_auto_confidence'] = ''
+        else:
+            return jsonify({"message": "Invalid bandwidth_limit payload"}), 400
+
+    if 'bandwidth_custom_value' in data:
+        if ('bandwidth_limit' not in data) or (updates.get('bandwidth_limit') == 'manual') or (doc.get('bandwidth_limit') == 'manual'):
+            raw_custom_value = data.get('bandwidth_custom_value')
+            if raw_custom_value is None:
+                return jsonify({"message": "Invalid bandwidth_custom_value"}), 400
+            try:
+                custom_value = min(500, max(1, int(float(str(raw_custom_value)))))
+            except (TypeError, ValueError):
+                return jsonify({"message": "Invalid bandwidth_custom_value"}), 400
+            updates['bandwidth_limit'] = updates.get('bandwidth_limit', 'manual')
+            updates['bandwidth_custom_value'] = custom_value
+            unset_fields['bandwidth_auto_assigned'] = ''
+            unset_fields['bandwidth_auto_confidence'] = ''
+            bandwidth_updated = True
+
+    if not updates and not unset_fields:
         return jsonify({"message": "No changes"}), 400
 
-    res = users_collection.update_one({"_id": oid}, {"$set": updates})
+    update_doc = {}
+    if updates:
+        update_doc['$set'] = updates
+    if unset_fields:
+        update_doc['$unset'] = unset_fields
+
+    res = users_collection.update_one({"_id": oid}, update_doc)
     if res.matched_count == 0:
         return jsonify({"message": "Not found"}), 404
-    return jsonify({"message": "Client updated"}), 200
+
+    roll_no_for_update = updates.get('roll_no', roll_no)
+    auto_recommendation = None
+    auto_warning = None
+
+    # AUTO mode: detect activity and assign tier immediately
+    if updates.get('bandwidth_limit') == 'auto' and roll_no_for_update:
+        try:
+            auto_recommendation = assign_auto_bandwidth(roll_no_for_update)
+        except Exception as error:
+            auto_warning = str(error)
+            logger.warning("Auto bandwidth assignment failed for %s: %s", roll_no_for_update, error)
+            auto_recommendation = _build_fallback_auto_recommendation(roll_no_for_update, auto_warning)
+        bandwidth_updated = True
+
+    apply_status = None
+    if bandwidth_updated:
+        latest_doc = users_collection.find_one({"_id": oid}) or {}
+        resolved_policy = resolve_effective_bandwidth(latest_doc)
+        users_collection.update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "bandwidth_effective_mode": resolved_policy.get("mode", "preset"),
+                    "bandwidth_effective_tier": resolved_policy.get("tier", "medium"),
+                    "bandwidth_effective_mbps": resolved_policy.get("effective_mbps", _medium_preset_mbps()),
+                    "bandwidth_last_applied": datetime.datetime.utcnow(),
+                }
+            },
+        )
+
+        try:
+            apply_status = apply_bandwidth_for_active_users()
+        except Exception as error:
+            logger.warning("Applying bandwidth policies failed after update for %s: %s", roll_no_for_update, error)
+            apply_status = {
+                "success": False,
+                "error": str(error),
+            }
+
+    return jsonify({
+        "message": "Client updated",
+        "auto_recommendation": auto_recommendation,
+        "apply_status": apply_status,
+        "warning": auto_warning,
+    }), 200
+
+
+@admin_routes.route('/admin/bandwidth/auto-assign/<id>', methods=['POST'])
+@admin_required
+def admin_auto_assign_bandwidth(id):
+    """Detect activity and auto-assign bandwidth for one user."""
+    user_doc = _find_user_by_mixed_id(id)
+    if not user_doc:
+        return jsonify({"message": "User not found"}), 404
+
+    roll_no = user_doc.get('roll_no')
+    if not roll_no:
+        return jsonify({"message": "roll_no missing for user"}), 400
+
+    warning = None
+
+    try:
+        recommendation = assign_auto_bandwidth(roll_no)
+    except Exception as error:
+        warning = str(error)
+        logger.warning("Auto bandwidth endpoint failed for %s: %s", roll_no, error)
+        recommendation = _build_fallback_auto_recommendation(roll_no, warning)
+
+    try:
+        apply_status = apply_bandwidth_for_active_users()
+    except Exception as error:
+        logger.warning("Failed applying tc policies after auto-assign for %s: %s", roll_no, error)
+        apply_status = {
+            "success": False,
+            "error": str(error),
+        }
+
+    return jsonify({
+        "roll_no": roll_no,
+        "tier": recommendation.get('tier', 'medium'),
+        "confidence": recommendation.get('confidence', 0),
+        "recommended_mbps": recommendation.get('recommended_mbps', _medium_preset_mbps()),
+        "detected_activity": recommendation.get('detected_activity', 'General Browsing'),
+        "dominant_category": recommendation.get('dominant_category', 'general'),
+        "total_requests": recommendation.get('total_requests', 0),
+        "explanation": recommendation.get('explanation', ''),
+        "fallback": recommendation.get('fallback', False),
+        "warning": warning,
+        "apply_status": apply_status,
+    }), 200
+
+
+@admin_routes.route('/admin/bandwidth/refresh-auto', methods=['POST'])
+@admin_required
+def admin_refresh_auto_bandwidth():
+    """Refresh all AUTO users based on latest activity patterns."""
+    result = refresh_auto_bandwidth_profiles()
+    return jsonify(result), 200
 
 
 @admin_routes.route('/admin/logs', methods=['GET'])
@@ -726,17 +958,18 @@ def bulk_upload_clients():
             return jsonify({'error': 'No file provided'}), 400
         
         file = request.files['file']
+        filename = file.filename or ''
         
-        if file.filename == '':
+        if filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
         # Validate file extension
-        if not file.filename.endswith(('.csv', '.xlsx', '.xls')):
+        if not filename.endswith(('.csv', '.xlsx', '.xls')):
             return jsonify({'error': 'Invalid file format. Please upload CSV or Excel file'}), 400
         
         # Read file
         try:
-            if file.filename.endswith('.csv'):
+            if filename.endswith('.csv'):
                 df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
             else:
                 df = pd.read_excel(file)
@@ -756,13 +989,13 @@ def bulk_upload_clients():
         errors = []
         
         # Process each row
-        for index, row in df.iterrows():
+        for row_num, (_, row) in enumerate(df.iterrows(), start=2):
             roll_no = str(row['roll_number']).strip()
             password = str(row['password']).strip()
             
             if not roll_no or not password:
                 skipped_count += 1
-                errors.append(f'Row {index + 2}: Missing data')
+                errors.append(f'Row {row_num}: Missing data')
                 continue
             
             # Check if student exists
@@ -778,6 +1011,9 @@ def bulk_upload_clients():
                 'role': 'student',
                 'blocked': False,
                 'activity': 'Idle',
+                'bandwidth_limit': 'medium',
+                'bandwidth_effective_tier': 'medium',
+                'bandwidth_effective_mbps': _medium_preset_mbps(),
             }
             
             users_collection.insert_one(doc)
@@ -896,14 +1132,14 @@ def get_filtering():
 @admin_routes.route('/admin/filtering/categories', methods=['POST'])
 @admin_required
 def toggle_category():
-    data = request.get_json()
+    data = request.get_json() or {}
     category = data.get("category")
     
     if not category:
         return jsonify({"message": "Category required"}), 400
         
     _refresh_web_filter_defaults()
-    config = web_filter_collection.find_one({"type": "config"})
+    config = web_filter_collection.find_one({"type": "config"}) or {}
     
     categories = config.get("categories", {})
     if category not in categories:
@@ -940,7 +1176,7 @@ def toggle_category():
 @admin_routes.route('/admin/filtering/sites', methods=['POST'])
 @admin_required
 def add_blocked_site():
-    data = request.get_json()
+    data = request.get_json() or {}
     url = data.get("url")
     
     if not url:
@@ -949,7 +1185,7 @@ def add_blocked_site():
     _refresh_web_filter_defaults()
     
     # Check if already exists
-    config = web_filter_collection.find_one({"type": "config"})
+    config = web_filter_collection.find_one({"type": "config"}) or {}
     if url in config.get("manual_blocks", []):
          return jsonify({"message": "Already blocked"}), 409
          
@@ -982,7 +1218,7 @@ def add_blocked_site():
 @admin_routes.route('/admin/filtering/sites', methods=['DELETE'])
 @admin_required
 def remove_blocked_site():
-    data = request.get_json()
+    data = request.get_json() or {}
     url = data.get("url")
     
     if not url:

@@ -70,6 +70,20 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- App-Scoped Chart Variables ---
     let myTrafficChart;
     let trafficInterval;
+    const customBandwidthTimers = {};
+    const DEFAULT_BANDWIDTH_PRESETS = {
+        low: 2,
+        medium: 5,
+        high: 20,
+    };
+    let bandwidthPresets = { ...DEFAULT_BANDWIDTH_PRESETS };
+
+    function getPresetMbps(tier) {
+        const fallback = DEFAULT_BANDWIDTH_PRESETS[tier] || DEFAULT_BANDWIDTH_PRESETS.medium;
+        const parsed = parseInt(bandwidthPresets[tier], 10);
+        if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+        return parsed;
+    }
 
     // --- Page Loading Logic ---
     async function loadPage(pageName) {
@@ -455,9 +469,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Fetch clients from API
         fetch('/api/admin/clients', { headers: { 'Authorization': 'Bearer ' + token } })
-            .then(res => res.json())
+            .then(async res => {
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(body.message || 'Failed to load clients');
+                }
+                return body;
+            })
             .then(data => {
                 const clients = data.clients || [];
+                if (data.bandwidth_presets && typeof data.bandwidth_presets === 'object') {
+                    bandwidthPresets = {
+                        ...DEFAULT_BANDWIDTH_PRESETS,
+                        ...data.bandwidth_presets,
+                    };
+                }
                 bandwidthListBody.innerHTML = "";
 
                 if (clients.length === 0) {
@@ -465,14 +491,37 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
 
+                let renderedClients = 0;
+
                 clients.forEach(client => {
                     if (client.role === 'admin') return;
+                    renderedClients += 1;
 
                     const clientId = client._id || client.id;
-                    const limit = client.bandwidth_limit || 'standard';
-                    const isCustom = typeof limit === 'number';
+                    const rawLimit = client.bandwidth_limit;
+                    let limit = 'medium';
+                    if (typeof rawLimit === 'number') {
+                        limit = 'manual';
+                    } else if (typeof rawLimit === 'string') {
+                        const normalized = rawLimit.trim().toLowerCase();
+                        if (['low', 'medium', 'high', 'manual', 'auto'].includes(normalized)) {
+                            limit = normalized;
+                        }
+                    }
+
+                    const customSource = (client.bandwidth_custom_value !== undefined && client.bandwidth_custom_value !== null)
+                        ? client.bandwidth_custom_value
+                        : rawLimit;
+                    const parsedCustomValue = parseInt(customSource, 10);
+                    const customValue = Number.isFinite(parsedCustomValue)
+                        ? Math.min(500, Math.max(1, parsedCustomValue))
+                        : 50;
                     const dataUsage = client.data_usage || '0';
-                    const activity = client.activity || 'Idle';
+                    const activity = client.detected_activity || client.activity || 'Idle';
+                    const effectiveMbps = client.bandwidth_effective_mbps || (limit === 'manual'
+                        ? customValue
+                        : getPresetMbps(limit));
+                    const effectiveInfoHtml = `<div class="effective-bw-info" style="margin-top: 5px; font-size: 0.82em; color: #4b5563;">Applied: <strong>${effectiveMbps} Mbps</strong></div>`;
 
                     // Determine status display
                     let statusHtml = '<span class="status-offline">Offline</span>';
@@ -503,32 +552,37 @@ document.addEventListener("DOMContentLoaded", () => {
                         bandwidthDisplayHtml = `
                         <div class="bandwidth-control-cell">
                             <select class="limit-select" data-id="${clientId}">
-                                <option value="low">LOW (10 Mbps)</option>
-                                <option value="medium">MEDIUM (25 Mbps)</option>
-                                <option value="high">HIGH (100 Mbps)</option>
+                                <option value="low">LOW (${getPresetMbps('low')} Mbps)</option>
+                                <option value="medium">MEDIUM (${getPresetMbps('medium')} Mbps)</option>
+                                <option value="high">HIGH (${getPresetMbps('high')} Mbps)</option>
                                 <option value="manual">MANUAL (Custom)</option>
-                                <option value="auto" selected>AUTO (ML-Based)</option>
+                                <option value="auto" selected>AUTO (Activity-Based)</option>
                             </select>
+                            <span class="custom-bw-group hidden" style="margin-left: 10px;">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${customValue}" min="1" max="500" style="width: 60px;">
+                                <span>Mbps</span>
+                            </span>
                             <div class="auto-bw-info" style="margin-top: 5px; font-size: 0.85em; color: #666;">
                                 Currently: <strong>${autoAssigned.toUpperCase()}</strong> (${confidencePercent}% confidence)
                             </div>
+                            ${effectiveInfoHtml}
                         </div>
                     `;
                     } else if (limit === 'manual') {
-                        const customValue = client.bandwidth_custom_value || 50;
                         bandwidthDisplayHtml = `
                         <div class="bandwidth-control-cell">
                             <select class="limit-select" data-id="${clientId}">
-                                <option value="low">LOW (10 Mbps)</option>
-                                <option value="medium">MEDIUM (25 Mbps)</option>
-                                <option value="high">HIGH (100 Mbps)</option>
+                                <option value="low">LOW (${getPresetMbps('low')} Mbps)</option>
+                                <option value="medium">MEDIUM (${getPresetMbps('medium')} Mbps)</option>
+                                <option value="high">HIGH (${getPresetMbps('high')} Mbps)</option>
                                 <option value="manual" selected>MANUAL (Custom)</option>
-                                <option value="auto">AUTO (ML-Based)</option>
+                                <option value="auto">AUTO (Activity-Based)</option>
                             </select>
                             <span class="custom-bw-group" style="margin-left: 10px;">
-                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${customValue}" min="1" style="width: 60px;">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${customValue}" min="1" max="500" style="width: 60px;">
                                 <span>Mbps</span>
                             </span>
+                            ${effectiveInfoHtml}
                         </div>
                     `;
                     } else {
@@ -537,16 +591,17 @@ document.addEventListener("DOMContentLoaded", () => {
                         bandwidthDisplayHtml = `
                         <div class="bandwidth-control-cell">
                             <select class="limit-select" data-id="${clientId}">
-                                <option value="low" ${normalizedLimit === 'low' ? 'selected' : ''}>LOW (10 Mbps)</option>
-                                <option value="medium" ${normalizedLimit === 'medium' ? 'selected' : ''}>MEDIUM (25 Mbps)</option>
-                                <option value="high" ${normalizedLimit === 'high' ? 'selected' : ''}>HIGH (100 Mbps)</option>
+                                <option value="low" ${normalizedLimit === 'low' ? 'selected' : ''}>LOW (${getPresetMbps('low')} Mbps)</option>
+                                <option value="medium" ${normalizedLimit === 'medium' ? 'selected' : ''}>MEDIUM (${getPresetMbps('medium')} Mbps)</option>
+                                <option value="high" ${normalizedLimit === 'high' ? 'selected' : ''}>HIGH (${getPresetMbps('high')} Mbps)</option>
                                 <option value="manual">MANUAL (Custom)</option>
-                                <option value="auto">AUTO (ML-Based)</option>
+                                <option value="auto">AUTO (Activity-Based)</option>
                             </select>
                             <span class="custom-bw-group hidden">
-                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="50" min="1" style="width: 60px;">
+                                <input type="number" class="custom-bw-input" data-id="${clientId}" value="${customValue}" min="1" max="500" style="width: 60px;">
                                 <span>Mbps</span>
                             </span>
+                            ${effectiveInfoHtml}
                         </div>
                     `;
                     }
@@ -560,10 +615,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 `;
                     bandwidthListBody.appendChild(row);
                 });
+
+                if (renderedClients === 0) {
+                    bandwidthListBody.innerHTML = "<tr><td colspan='5'>No students registered yet</td></tr>";
+                }
             })
             .catch(err => {
                 console.error('Error fetching clients:', err);
-                bandwidthListBody.innerHTML = "<tr><td colspan='5'>Error loading clients</td></tr>";
+                bandwidthListBody.innerHTML = `<tr><td colspan='5'>${err.message || 'Error loading clients'}</td></tr>`;
             });
     }
 
@@ -1087,25 +1146,107 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    function getBandwidthApplyWarning(payload) {
+        if (!payload || typeof payload !== 'object') return '';
+
+        if (payload.warning) {
+            return String(payload.warning);
+        }
+
+        const applyStatus = payload.apply_status;
+        if (!applyStatus || typeof applyStatus !== 'object') {
+            return '';
+        }
+
+        if (applyStatus.success === false && applyStatus.error) {
+            return String(applyStatus.error);
+        }
+
+        const tcStatus = applyStatus.tc && typeof applyStatus.tc === 'object'
+            ? applyStatus.tc
+            : applyStatus;
+
+        if ((applyStatus.total_active_users === 0 || applyStatus.total_active_sessions === 0)
+            && tcStatus.message) {
+            return String(tcStatus.message);
+        }
+
+        if (Array.isArray(applyStatus.skipped_sessions) && applyStatus.skipped_sessions.length > 0) {
+            const firstSkipped = applyStatus.skipped_sessions[0];
+            if (firstSkipped && firstSkipped.reason) {
+                return `Active session skipped: ${firstSkipped.reason}`;
+            }
+            return 'Some active sessions were skipped for shaping';
+        }
+
+        if (Array.isArray(tcStatus.warnings) && tcStatus.warnings.length > 0) {
+            return tcStatus.warnings.join('; ');
+        }
+
+        if (tcStatus.success === false) {
+            if (Array.isArray(tcStatus.errors) && tcStatus.errors.length > 0) {
+                return tcStatus.errors.join('; ');
+            }
+            if (tcStatus.error) {
+                return String(tcStatus.error);
+            }
+            return 'Traffic shaping command failed';
+        }
+
+        return '';
+    }
+
     function handleBandwidthChange(selectElement) {
         const clientId = selectElement.dataset.id;
         const limit = selectElement.value;
         const bandwidthCell = selectElement.closest('.bandwidth-control-cell');
+        if (!bandwidthCell || !clientId) return;
+
+        if (customBandwidthTimers[clientId]) {
+            clearTimeout(customBandwidthTimers[clientId]);
+            delete customBandwidthTimers[clientId];
+        }
+
         const customInputSpan = bandwidthCell.querySelector('.custom-bw-group');
         const autoInfoDiv = bandwidthCell.querySelector('.auto-bw-info');
 
         // Handle MANUAL mode
         if (limit === 'manual') {
+            let customInput = bandwidthCell.querySelector('.custom-bw-input');
+
+            // If this row came from AUTO mode, create manual input UI on the fly
+            if (!customInput) {
+                const manualGroup = document.createElement('span');
+                manualGroup.className = 'custom-bw-group';
+                manualGroup.style.marginLeft = '10px';
+                manualGroup.innerHTML = `
+                    <input type="number" class="custom-bw-input" data-id="${clientId}" value="50" min="1" max="500" style="width: 60px;">
+                    <span>Mbps</span>
+                `;
+                const effectiveInfo = bandwidthCell.querySelector('.effective-bw-info');
+                if (effectiveInfo) {
+                    bandwidthCell.insertBefore(manualGroup, effectiveInfo);
+                } else {
+                    bandwidthCell.appendChild(manualGroup);
+                }
+                customInput = manualGroup.querySelector('.custom-bw-input');
+            }
+
             // Show custom input field
             if (customInputSpan) {
                 customInputSpan.classList.remove('hidden');
             }
+
             // Hide AUTO info
             if (autoInfoDiv) {
                 autoInfoDiv.remove();
             }
 
-            const customValue = parseInt(customInputSpan.querySelector('.custom-bw-input').value, 10) || 50;
+            const parsedCustomValue = parseInt(customInput.value, 10);
+            const customValue = Number.isFinite(parsedCustomValue)
+                ? Math.min(500, Math.max(1, parsedCustomValue))
+                : 50;
+            customInput.value = customValue;
             saveBandwidthLimit(clientId, 'manual', customValue);
         }
         // Handle AUTO mode
@@ -1131,20 +1272,40 @@ document.addEventListener("DOMContentLoaded", () => {
             const token = localStorage.getItem('admin_token');
             if (!token) return alert('Please login as admin');
 
+            selectElement.disabled = true;
             fetch(`/api/admin/bandwidth/auto-assign/${clientId}`, {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + token }
             })
-                .then(res => res.json())
+                .then(async res => {
+                    const body = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        throw new Error(body.message || 'Failed to auto-assign bandwidth');
+                    }
+                    return body;
+                })
                 .then(data => {
                     if (data.tier && data.confidence !== undefined) {
                         const confidencePercent = (data.confidence * 100).toFixed(0);
+                        const recommendedMbps = data.recommended_mbps || getPresetMbps(data.tier);
+                        const detectedActivity = data.detected_activity || 'General Browsing';
                         const autoInfo = bandwidthCell.querySelector('.auto-bw-info');
                         if (autoInfo) {
-                            autoInfo.innerHTML = `Currently: <strong>${data.tier.toUpperCase()}</strong> (${confidencePercent}% confidence)`;
+                            autoInfo.innerHTML = `Detected: <strong>${detectedActivity}</strong><br>Currently: <strong>${data.tier.toUpperCase()}</strong> (${recommendedMbps} Mbps, ${confidencePercent}% confidence)`;
                         }
                         console.log(`✅ AUTO bandwidth assigned: ${data.tier.toUpperCase()} (${data.explanation})`);
                         addLog('info', 'ADMIN', `Set bandwidth to AUTO mode - assigned: ${data.tier.toUpperCase()}`);
+
+                        const applyWarning = getBandwidthApplyWarning(data);
+                        if (applyWarning) {
+                            console.warn('AUTO bandwidth apply warning:', applyWarning);
+                            addLog('warn', 'ADMIN', `AUTO mode warning for ${clientId}: ${applyWarning}`);
+                            alert(`AUTO assigned, but traffic shaping reported an issue:\n${applyWarning}`);
+                        }
+
+                        if (document.getElementById('bandwidth-page')) {
+                            initBandwidth();
+                        }
                     } else {
                         console.error('Invalid response from auto-assign endpoint');
                         alert('Failed to auto-assign bandwidth');
@@ -1156,7 +1317,10 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (autoInfo) {
                         autoInfo.innerHTML = 'Error - fallback to MEDIUM';
                     }
-                    alert('Error auto-assigning bandwidth');
+                    alert(err.message || 'Error auto-assigning bandwidth');
+                })
+                .finally(() => {
+                    selectElement.disabled = false;
                 });
         }
         // Handle preset tiers (LOW, MEDIUM, HIGH)
@@ -1182,8 +1346,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const payload = { bandwidth_limit: limit };
 
         // If manual mode, include custom value
-        if (limit === 'manual' && customValue) {
-            payload.bandwidth_custom_value = customValue;
+        if (limit === 'manual') {
+            const parsedCustomValue = parseInt(customValue, 10);
+            payload.bandwidth_custom_value = Number.isFinite(parsedCustomValue)
+                ? Math.min(500, Math.max(1, parsedCustomValue))
+                : 50;
         }
 
         fetch(`/api/admin/clients/${clientId}`, {
@@ -1194,14 +1361,26 @@ document.addEventListener("DOMContentLoaded", () => {
             },
             body: JSON.stringify(payload)
         })
-            .then(res => {
+            .then(async res => {
+                const responseData = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    const displayValue = limit === 'manual' && customValue ? `${customValue} Mbps` : limit.toUpperCase();
+                    const displayValue = limit === 'manual' ? `${payload.bandwidth_custom_value} Mbps` : limit.toUpperCase();
                     console.log(`✅ Bandwidth limit saved: ${displayValue}`);
                     addLog('info', 'ADMIN', `Set bandwidth limit to ${displayValue}`);
+
+                    const applyWarning = getBandwidthApplyWarning(responseData);
+                    if (applyWarning) {
+                        console.warn('Bandwidth apply warning:', applyWarning);
+                        addLog('warn', 'ADMIN', `Bandwidth apply warning for ${clientId}: ${applyWarning}`);
+                        alert(`Bandwidth was saved, but traffic shaping reported an issue:\n${applyWarning}`);
+                    }
+
+                    if (document.getElementById('bandwidth-page')) {
+                        initBandwidth();
+                    }
                 } else {
-                    console.error('Failed to save bandwidth limit');
-                    alert('Failed to save bandwidth limit');
+                    console.error('Failed to save bandwidth limit', responseData);
+                    alert(responseData.message || 'Failed to save bandwidth limit');
                 }
             })
             .catch(err => {
@@ -1211,12 +1390,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function handleCustomBandwidthInput(inputElement) {
-        const id = parseInt(inputElement.dataset.id);
-        const client = db.clients.find(c => c.id === id);
-        const customValue = parseInt(inputElement.value, 10);
-        if (!isNaN(customValue) && customValue > 0) {
-            db.bandwidthLimits[id] = customValue;
+        const clientId = inputElement.dataset.id;
+        if (!clientId) return;
+
+        if (customBandwidthTimers[clientId]) {
+            clearTimeout(customBandwidthTimers[clientId]);
+            delete customBandwidthTimers[clientId];
         }
+
+        const customValue = parseInt(inputElement.value, 10);
+        if (!Number.isFinite(customValue)) return;
+
+        const normalizedValue = Math.min(500, Math.max(1, customValue));
+        if (normalizedValue !== customValue) {
+            inputElement.value = normalizedValue;
+        }
+        
+        db.bandwidthLimits[clientId] = normalizedValue;
+
+        customBandwidthTimers[clientId] = setTimeout(() => {
+            saveBandwidthLimit(clientId, 'manual', normalizedValue);
+        }, 700);
     }
 
     function handleGenerateVouchers() {

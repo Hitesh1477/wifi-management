@@ -7,24 +7,126 @@ Integrates with Flask backend for dynamic filtering
 import subprocess
 import socket
 import logging
-from typing import List, Dict, Set
+import os
+from typing import List, Dict, Set, Optional
 from db import web_filter_collection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _run_ip_command(args: List[str]) -> str:
+    try:
+        result = subprocess.run(
+            ["ip"] + args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        return (result.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def _extract_route_device(route_output: str) -> Optional[str]:
+    for line in route_output.splitlines():
+        parts = line.split()
+        if "dev" not in parts:
+            continue
+        dev_index = parts.index("dev")
+        if dev_index + 1 < len(parts):
+            return parts[dev_index + 1].strip()
+    return None
+
+
+def _detect_default_route_interface() -> Optional[str]:
+    return _extract_route_device(_run_ip_command(["-4", "route", "show", "default"]))
+
+
+def _detect_interface_for_subnet(subnet: str) -> Optional[str]:
+    if not subnet:
+        return None
+    return _extract_route_device(_run_ip_command(["-4", "route", "show", subnet]))
+
+
+def _detect_interface_by_ipv4_prefix(prefix: str) -> Optional[str]:
+    if not prefix:
+        return None
+
+    output = _run_ip_command(["-o", "-4", "addr", "show"])
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or parts[2] != "inet":
+            continue
+        iface = parts[1].strip()
+        ip_addr = parts[3].split("/", 1)[0].strip()
+        if ip_addr.startswith(prefix):
+            return iface
+    return None
+
+
+def _prefix_from_gateway_ip(gateway_ip: str) -> str:
+    octets = str(gateway_ip or "").strip().split(".")
+    if len(octets) == 4:
+        return ".".join(octets[:3]) + "."
+    return "192.168.50."
+
 class LinuxFirewallManager:
     def __init__(self):
         self.blocked_ips = set()
         self.authenticated_ips = set()  # Track authenticated users
-        self.hotspot_interface = "wlx782051ac644f"  # USB WiFi adapter
-        self.internet_interface = "wlp0s20f3"  # Built-in WiFi
-        self.hotspot_subnet = "192.168.50.0/24"
-        self.flask_server_ip = "192.168.50.1"
+        self.hotspot_subnet = os.environ.get("HOTSPOT_SUBNET", "192.168.50.0/24")
+        self.flask_server_ip = os.environ.get("HOTSPOT_GATEWAY_IP", "192.168.50.1")
+
+        hotspot_prefix = _prefix_from_gateway_ip(self.flask_server_ip)
+        configured_hotspot = (os.environ.get("HOTSPOT_INTERFACE") or "").strip()
+        detected_hotspot = (
+            configured_hotspot
+            or _detect_interface_for_subnet(self.hotspot_subnet)
+            or _detect_interface_by_ipv4_prefix(hotspot_prefix)
+        )
+        self.hotspot_interface = detected_hotspot or "wlx782051ac644f"
+
+        configured_internet = (os.environ.get("INTERNET_INTERFACE") or "").strip()
+        detected_internet = configured_internet or _detect_default_route_interface()
+        if detected_internet == self.hotspot_interface:
+            detected_internet = None
+        self.internet_interface = detected_internet or "wlp0s20f3"
+
+        logger.info(
+            "Firewall interfaces: hotspot=%s internet=%s subnet=%s",
+            self.hotspot_interface,
+            self.internet_interface,
+            self.hotspot_subnet,
+        )
         
     def setup_nat(self):
         """Enable IP forwarding and NAT for hotspot"""
         try:
+            configured_hotspot = (os.environ.get("HOTSPOT_INTERFACE") or "").strip()
+            configured_internet = (os.environ.get("INTERNET_INTERFACE") or "").strip()
+            hotspot_prefix = _prefix_from_gateway_ip(self.flask_server_ip)
+
+            detected_hotspot = (
+                configured_hotspot
+                or _detect_interface_for_subnet(self.hotspot_subnet)
+                or _detect_interface_by_ipv4_prefix(hotspot_prefix)
+            )
+            if detected_hotspot:
+                self.hotspot_interface = detected_hotspot
+
+            detected_internet = configured_internet or _detect_default_route_interface()
+            if detected_internet and detected_internet != self.hotspot_interface:
+                self.internet_interface = detected_internet
+
+            logger.info(
+                "Applying NAT on hotspot=%s internet=%s",
+                self.hotspot_interface,
+                self.internet_interface,
+            )
+
             # Enable IP forwarding
             subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
             
@@ -62,7 +164,7 @@ class LinuxFirewallManager:
             # Allow established connections back (for authenticated users)
             subprocess.run([
                 'sudo', 'iptables', '-A', 'FORWARD',
-                '-i', self.internet_interface, '-o', self.hotspot_interface,
+                '-o', self.hotspot_interface,
                 '-m', 'state', '--state', 'RELATED,ESTABLISHED',
                 '-j', 'ACCEPT'
             ], check=True)
@@ -84,9 +186,9 @@ class LinuxFirewallManager:
             try:
                 addr_info = socket.getaddrinfo(domain, None)
                 for info in addr_info:
-                    ip = info[4][0]
-                    if ':' not in ip:  # IPv4 only for now
-                        ips.add(ip)
+                    ip_text = str(info[4][0])
+                    if ':' not in ip_text:  # IPv4 only for now
+                        ips.add(ip_text)
             except Exception:
                 pass
 
@@ -400,7 +502,6 @@ def setup_captive_portal():
         subprocess.run([
             'sudo', 'iptables', '-A', 'FORWARD',
             '-i', manager.hotspot_interface,
-            '-o', manager.internet_interface,
             '-j', 'DROP'
         ], check=True)
         
@@ -423,7 +524,6 @@ def allow_authenticated_user(client_ip: str):
             'sudo', 'iptables', '-I', 'FORWARD', '2',
             '-s', client_ip,
             '-i', manager.hotspot_interface,
-            '-o', manager.internet_interface,
             '-j', 'ACCEPT'
         ], check=True)
         
@@ -444,7 +544,6 @@ def block_authenticated_user(client_ip: str):
             'sudo', 'iptables', '-D', 'FORWARD',
             '-s', client_ip,
             '-i', manager.hotspot_interface,
-            '-o', manager.internet_interface,
             '-j', 'ACCEPT'
         ], check=False)  # Don't fail if rule doesn't exist
         

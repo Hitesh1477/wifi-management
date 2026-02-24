@@ -13,7 +13,6 @@ Provides:
 
 from pymongo import MongoClient
 from datetime import datetime, timedelta, UTC
-import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler

@@ -37,7 +37,7 @@ app.register_blueprint(filtering_blueprint, url_prefix="/api/admin")
 # --------------------------------------------------
 @app.before_request
 def allow_lan_only():
-    ip = request.remote_addr
+    ip = request.remote_addr or ""
 
     # Allow localhost for testing
     if ip in ("127.0.0.1", "::1"):
@@ -142,17 +142,21 @@ def api_status():
 # --------------------------------------------------
 if __name__ == "__main__":
     try:
-        from linux_firewall_manager import setup_hotspot_firewall
+        from linux_firewall_manager import setup_hotspot_firewall, get_firewall_manager
         import subprocess
         
         print("🔥 Initializing Firewall Rules...")
         setup_hotspot_firewall()
+        firewall_manager = get_firewall_manager()
+        hotspot_iface = getattr(firewall_manager, "hotspot_interface", "wlx782051ac644f")
+        internet_iface = getattr(firewall_manager, "internet_interface", "wlp0s20f3")
+        print(f"📡 Firewall interfaces: hotspot={hotspot_iface}, internet={internet_iface}")
         
         # Disable IPv6 on hotspot interface to prevent bypass
         try:
             subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv6.conf.all.disable_ipv6=1'], check=False)
             subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv6.conf.default.disable_ipv6=1'], check=False)
-            subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv6.conf.wlx782051ac644f.disable_ipv6=1'], check=False)
+            subprocess.run(['sudo', 'sysctl', '-w', f'net.ipv6.conf.{hotspot_iface}.disable_ipv6=1'], check=False)
             print("🔒 IPv6 Disabled (Prevents Bypass)")
         except Exception as e:
             print(f"⚠️ Failed to disable IPv6: {e}")
@@ -179,5 +183,15 @@ if __name__ == "__main__":
         print("✅ Firewall Rules Applied")
     except Exception as e:
         print(f"⚠️ Firewall Init Failed: {e}")
+
+    try:
+        from bandwidth_manager import apply_bandwidth_for_active_users, start_auto_bandwidth_daemon
+
+        print("Initializing activity-based bandwidth management...")
+        apply_bandwidth_for_active_users()
+        start_auto_bandwidth_daemon(interval_seconds=300)
+        print("Bandwidth management daemon started")
+    except Exception as e:
+        print(f"⚠️ Bandwidth management init failed: {e}")
         
     app.run(host="0.0.0.0", port=5000, debug=False) # Disable debug to prevent double-execution on reload

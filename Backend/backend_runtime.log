@@ -1,0 +1,270 @@
+INFO:linux_firewall_manager:Firewall interfaces: hotspot=wlx782051ac644f internet=enxb6c5851f346d subnet=192.168.50.0/24
+INFO:linux_firewall_manager:Applying NAT on hotspot=wlx782051ac644f internet=enxb6c5851f346d
+net.ipv4.ip_forward = 1
+iptables: Chain already exists.
+INFO:linux_firewall_manager:🔒 Blocking Public DNS (Forces Local Filtering)
+INFO:linux_firewall_manager:NAT setup completed successfully (with GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:✅ Captive portal redirection configured
+INFO:linux_firewall_manager:Cleared all filter rules (flushed GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Blocking 51 domains
+INFO:linux_firewall_manager:Resolved sonylivauth.com to IPs: set()
+INFO:linux_firewall_manager:Resolved api.hotstar.com to IPs: {'104.115.39.171', '104.115.39.152', '104.115.39.209', '104.115.39.168', '104.115.39.147', '104.115.39.131', '104.115.39.179', '104.115.39.170', '104.115.39.192'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.171 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.152 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.209 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.168 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.147 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.131 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.179 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.170 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.192 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved whatsapp.com to IPs: {'163.70.143.60'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 163.70.143.60 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved nordvpn.com to IPs: {'104.16.208.203', '104.19.159.190'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.16.208.203 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.19.159.190 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved battle.net to IPs: {'99.83.192.184', '166.117.48.155', '166.117.103.183', '166.117.198.189'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 99.83.192.184 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 166.117.48.155 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 166.117.103.183 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 166.117.198.189 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved wetransfer.com to IPs: {'108.159.61.2', '108.159.61.49', '108.159.61.30', '108.159.61.72'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 108.159.61.2 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 108.159.61.49 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 108.159.61.30 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 108.159.61.72 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved hidemyass.com to IPs: {'23.212.0.109', '23.212.0.108'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.212.0.109 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.212.0.108 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved 1337x.to to IPs: {'49.44.79.236'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 49.44.79.236 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved reddit.com to IPs: {'151.101.65.140', '151.101.1.140', '151.101.193.140', '151.101.129.140'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.65.140 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.1.140 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.193.140 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.129.140 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved expressvpn.com to IPs: {'13.227.249.98', '13.227.249.6', '13.227.249.39', '13.227.249.90'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.98 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.6 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.39 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.90 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved disneyplus.com to IPs: {'34.110.155.89'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 34.110.155.89 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved steampowered.com to IPs: {'23.211.152.126'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.211.152.126 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved hulu.com to IPs: {'23.193.114.73', '23.193.114.57'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.193.114.73 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.193.114.57 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved ubisoft.com to IPs: {'99.84.215.48', '99.84.215.41', '99.84.215.34', '99.84.215.102'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 99.84.215.48 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 99.84.215.41 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 99.84.215.34 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 99.84.215.102 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved rarbg.to to IPs: {'49.44.79.236'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 49.44.79.236 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved epicgames.com to IPs: {'44.214.52.97', '52.2.163.29', '18.210.3.169'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 44.214.52.97 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 52.2.163.29 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 18.210.3.169 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved poki.com to IPs: {'104.18.144.9', '104.18.143.9'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.18.144.9 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.18.143.9 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved twitch.tv to IPs: {'151.101.2.167', '151.101.66.167', '151.101.130.167', '151.101.194.167'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.2.167 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.66.167 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.130.167 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.194.167 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved web.whatsapp.com to IPs: {'163.70.143.60'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 163.70.143.60 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved minecraft.net to IPs: {'13.107.246.68', '13.107.213.68'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.107.246.68 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.107.213.68 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved nflxvideo.net to IPs: {'18.236.7.30', '34.252.74.1', '107.20.175.192'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 18.236.7.30 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 34.252.74.1 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 107.20.175.192 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved primevideo.com to IPs: {'13.225.5.66', '13.225.5.123', '13.225.5.83', '13.225.5.103'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.225.5.66 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.225.5.123 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.225.5.83 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.225.5.103 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved voot.com to IPs: {'23.38.51.75'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.38.51.75 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved linkedin.com to IPs: {'150.171.22.12'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 150.171.22.12 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved peacocktv.com to IPs: {'104.115.39.27', '104.115.39.35'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.27 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.115.39.35 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved twitter.com to IPs: {'172.66.0.227'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 172.66.0.227 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved pinterest.com to IPs: {'151.101.128.84', '151.101.64.84', '151.101.0.84', '151.101.192.84'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.128.84 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.64.84 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.0.84 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 151.101.192.84 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved ea.com to IPs: {'23.222.30.191'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.222.30.191 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved tiktok.com to IPs: {'49.44.79.236'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 49.44.79.236 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved sonyliv.com to IPs: {'13.228.136.129', '47.130.141.179', '18.136.224.129'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.228.136.129 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 47.130.141.179 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 18.136.224.129 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved protonvpn.me to IPs: {'3.33.139.32'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 3.33.139.32 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved roblox.com to IPs: {'128.116.31.3'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 128.116.31.3 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved privateinternetaccess.com to IPs: {'104.18.40.93', '172.64.147.163'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.18.40.93 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 172.64.147.163 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved mediafire.com to IPs: {'104.17.148.83', '104.17.147.83'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.17.148.83 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.17.147.83 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved slowroads.io to IPs: {'172.67.70.173', '104.26.7.92', '104.26.6.92'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 172.67.70.173 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.26.7.92 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.26.6.92 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved zee5.com to IPs: {'23.212.0.79', '23.212.0.77'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.212.0.79 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 23.212.0.77 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved tunnelbear.com to IPs: {'104.17.155.236', '104.17.154.236'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.17.155.236 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.17.154.236 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved thepiratebay.org to IPs: {'49.44.79.236'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 49.44.79.236 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved instagram.com to IPs: {'163.70.143.174'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 163.70.143.174 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved netflix.com to IPs: {'54.170.196.176', '54.246.79.9', '52.214.181.141'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 54.170.196.176 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 54.246.79.9 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 52.214.181.141 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved hbomax.com to IPs: {'52.222.177.27', '52.222.177.104', '52.222.177.82', '52.222.177.96'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 52.222.177.27 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 52.222.177.104 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 52.222.177.82 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 52.222.177.96 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved meesho.com to IPs: {'34.49.140.161'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 34.49.140.161 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved playvalorant.com to IPs: {'15.197.167.90', '3.33.186.135'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 15.197.167.90 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 3.33.186.135 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved cyberghostvpn.com to IPs: {'172.66.132.12', '172.66.132.11'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 172.66.132.12 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 172.66.132.11 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved megaupload.com to IPs: set()
+INFO:linux_firewall_manager:Resolved hotstar.com to IPs: {'13.227.249.58', '13.227.249.22', '13.227.249.32', '13.227.249.114'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.58 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.22 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.32 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 13.227.249.114 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved surfshark.com to IPs: {'104.18.120.34', '104.18.121.34'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.18.120.34 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.18.121.34 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved facebook.com to IPs: {'57.144.42.1'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 57.144.42.1 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved snapchat.com to IPs: {'34.149.46.130'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 34.149.46.130 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved proxysite.com to IPs: {'172.67.72.226', '104.26.9.204', '104.26.8.204'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 172.67.72.226 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.26.9.204 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:🚫 Blocked IP: 104.26.8.204 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Resolved spotify.com to IPs: {'35.186.224.24'}
+INFO:linux_firewall_manager:🚫 Blocked IP: 35.186.224.24 (in GLOBAL_BLOCKS)
+INFO:linux_firewall_manager:Firewall rules updated from database
+INFO:linux_firewall_manager:✅ Captive portal firewall configured - all internet traffic blocked before auth
+sudo: netfilter-persistent: command not found
+usage: sudo -h | -K | -k | -V
+usage: sudo -v [-ABkNnS] [-g group] [-h host] [-p prompt] [-u user]
+usage: sudo -l [-ABkNnS] [-g group] [-h host] [-p prompt] [-U user]
+            [-u user] [command [arg ...]]
+usage: sudo [-ABbEHkNnPS] [-r role] [-t type] [-C num] [-D directory]
+            [-g group] [-h host] [-p prompt] [-R directory] [-T timeout]
+            [-u user] [VAR=value] [-i | -s] [command [arg ...]]
+usage: sudo -e [-ABkNnS] [-r role] [-t type] [-C num] [-D directory]
+            [-g group] [-h host] [-p prompt] [-R directory] [-T timeout]
+            [-u user] file ...
+ERROR:linux_firewall_manager:Failed to save rules: Command '['sudo', 'iptables-save', '>', '/etc/iptables/rules.v4']' returned non-zero exit status 1.
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.wlx782051ac644f.disable_ipv6 = 1
+INFO:bandwidth_manager:Starting auto bandwidth daemon (interval=300s)
+🔥 Initializing Firewall Rules...
+📡 Firewall interfaces: hotspot=wlx782051ac644f, internet=enxb6c5851f346d
+🔒 IPv6 Disabled (Prevents Bypass)
+🔒 Added emergency blocks for slowroads.io (4 IPs, TCP+UDP)
+✅ Firewall Rules Applied
+Initializing activity-based bandwidth management...
+Bandwidth management daemon started
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.158.43.192:5000
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:56:59] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:56:59] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:57:29] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:57:29] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:57:55] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:57:58] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:57:59] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:57:59] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:06] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:09] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:18] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:21] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:58:29] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:58:29] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:32] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:35] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:35] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:35] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:38] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:38] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:46] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:49] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:50] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:50] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:53] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:58:53] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:58:58] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:58:59] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:58:59] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:01] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:12] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:15] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:59:16] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:59:19] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:59:29] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:59:29] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:30] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:33] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:56] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 10:59:59] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:59:59] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 10:59:59] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 10:59:59] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.248 - - [21/Feb/2026 11:00:02] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:00:29] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:00:29] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 11:00:38] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 11:00:41] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:00:59] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:00:59] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:01:29] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:01:29] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 11:01:52] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 11:01:55] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:01:59] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:01:59] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:02:29] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:02:29] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:03:00] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:03:00] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:03:30] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:03:30] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 11:04:10] "[33mGET /generate_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:192.168.50.250 - - [21/Feb/2026 11:04:13] "[33mGET /gen_204 HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:04:31] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [21/Feb/2026 11:04:31] "GET /api/admin/notifications/count HTTP/1.1" 200 -

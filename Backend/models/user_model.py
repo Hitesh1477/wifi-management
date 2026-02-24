@@ -7,7 +7,12 @@ def create_user(name, roll_no, password):
         "name": name,
         "roll_no": roll_no,
         "password": hashed_password,
-        "role": "student"
+        "role": "student",
+        "blocked": False,
+        "activity": "Idle",
+        "bandwidth_limit": "medium",
+        "bandwidth_effective_tier": "medium",
+        "bandwidth_effective_mbps": 25,
     })
 
 def find_user(roll_no):

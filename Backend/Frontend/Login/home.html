@@ -86,10 +86,19 @@
     const rollNo = localStorage.getItem("roll_no");
     if (rollNo) {
         document.getElementById("rollDisplay").innerText = rollNo;
+        if (typeof startSessionGuard === "function") {
+            startSessionGuard();
+        }
     } else {
         // Not logged in, redirect to login
         window.location.replace(window.location.origin + "/");
     }
+
+    window.addEventListener("beforeunload", () => {
+        if (typeof stopSessionGuard === "function") {
+            stopSessionGuard();
+        }
+    });
 </script>
 
 </body>
