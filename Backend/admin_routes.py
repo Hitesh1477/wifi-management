@@ -29,6 +29,47 @@ web_filter_collection = db['web_filter']
 notifications_collection = db['notifications']
 logger = logging.getLogger(__name__)
 
+DEFAULT_ADMIN_TIMEOUT_HOURS = 2
+DEFAULT_STUDENT_TIMEOUT_HOURS = 2
+MIN_TIMEOUT_HOURS = 1
+MAX_TIMEOUT_HOURS = 24
+
+
+def _parse_timeout_hours(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_session_timeout_settings():
+    settings_col = db['admin_settings']
+    defaults = {
+        "admin_timeout_hours": DEFAULT_ADMIN_TIMEOUT_HOURS,
+        "student_timeout_hours": DEFAULT_STUDENT_TIMEOUT_HOURS,
+    }
+
+    try:
+        doc = settings_col.find_one({"type": "session_timeout"}) or {}
+    except Exception:
+        return defaults
+
+    admin_hours = _parse_timeout_hours(doc.get("admin_timeout_hours"))
+    student_hours = _parse_timeout_hours(doc.get("student_timeout_hours"))
+
+    if admin_hours is None:
+        admin_hours = defaults["admin_timeout_hours"]
+    if student_hours is None:
+        student_hours = defaults["student_timeout_hours"]
+
+    admin_hours = max(MIN_TIMEOUT_HOURS, min(MAX_TIMEOUT_HOURS, admin_hours))
+    student_hours = max(MIN_TIMEOUT_HOURS, min(MAX_TIMEOUT_HOURS, student_hours))
+
+    return {
+        "admin_timeout_hours": admin_hours,
+        "student_timeout_hours": student_hours,
+    }
+
 
 def _medium_preset_mbps() -> int:
     return int(get_bandwidth_presets().get("medium", 5))
@@ -123,13 +164,87 @@ def admin_login():
     if not admin or not check_password_hash(admin["password"], password):
         return jsonify({"message": "Invalid admin credentials"}), 401
 
+    timeout_settings = _get_session_timeout_settings()
+    admin_timeout_hours = timeout_settings["admin_timeout_hours"]
+
     token = jwt.encode({
         "username": username,
         "role": "admin",
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=admin_timeout_hours)
     }, app.config["SECRET_KEY"], algorithm="HS256")
 
-    return jsonify({"message": "Admin login successful", "token": token})
+    return jsonify({
+        "message": "Admin login successful",
+        "token": token,
+        "session_timeout_hours": admin_timeout_hours,
+    })
+
+@admin_routes.route('/admin/change-password', methods=['POST'])
+@admin_required
+def admin_change_password():
+    """Change the admin account password."""
+    data = request.get_json() or {}
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+
+    if not current_password or not new_password:
+        return jsonify({"message": "current_password and new_password are required"}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"message": "New password must be at least 6 characters"}), 400
+
+    # Decode token to get username
+    token = request.headers['Authorization'].split(" ")[1]
+    try:
+        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        username = payload.get('username')
+    except Exception:
+        return jsonify({"message": "Invalid token"}), 401
+
+    admin = admins_collection.find_one({"username": username})
+    if not admin:
+        return jsonify({"message": "Admin not found"}), 404
+
+    if not check_password_hash(admin['password'], current_password):
+        return jsonify({"message": "Current password is incorrect"}), 403
+
+    admins_collection.update_one(
+        {"username": username},
+        {"$set": {"password": generate_password_hash(new_password)}}
+    )
+    return jsonify({"message": "Password updated successfully"}), 200
+
+
+@admin_routes.route('/admin/settings/timeout', methods=['GET', 'POST'])
+@admin_required
+def admin_session_timeout():
+    """Get or update session timeout settings."""
+    settings_col = db['admin_settings']
+
+    if request.method == 'GET':
+        return jsonify(_get_session_timeout_settings()), 200
+
+    data = request.get_json() or {}
+    admin_hours = _parse_timeout_hours(data.get("admin_timeout_hours"))
+    student_hours = _parse_timeout_hours(data.get("student_timeout_hours"))
+
+    if admin_hours is None or student_hours is None:
+        return jsonify({"message": "admin_timeout_hours and student_timeout_hours must be numbers"}), 400
+
+    if not (MIN_TIMEOUT_HOURS <= admin_hours <= MAX_TIMEOUT_HOURS) or not (MIN_TIMEOUT_HOURS <= student_hours <= MAX_TIMEOUT_HOURS):
+        return jsonify({"message": "Timeout must be between 1 and 24 hours"}), 400
+
+    settings_col.update_one(
+        {"type": "session_timeout"},
+        {"$set": {
+            "type": "session_timeout",
+            "admin_timeout_hours": admin_hours,
+            "student_timeout_hours": student_hours
+        }},
+        upsert=True
+    )
+    return jsonify({"message": "Timeout settings saved"}), 200
+
 
 @admin_routes.route("/admin/stats", methods=["GET"])
 @admin_required
@@ -1081,25 +1196,103 @@ DEFAULT_CATEGORIES = {
 
 
 
+def normalize_filter_domain(value: str) -> str:
+    """Normalize a URL/domain into a lowercase host suitable for filtering."""
+    host = str(value or "").strip().lower()
+    if not host:
+        return ""
+
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    if host.startswith("//"):
+        host = host[2:]
+
+    host = host.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+
+    if "@" in host:
+        host = host.rsplit("@", 1)[-1]
+
+    if ":" in host:
+        maybe_host, maybe_port = host.rsplit(":", 1)
+        if maybe_port.isdigit():
+            host = maybe_host
+
+    if host.startswith("www."):
+        host = host[4:]
+
+    return host.strip(".")
+
+
 def _refresh_web_filter_defaults():
+    """Ensure filtering config exists and normalize legacy manual blocks."""
+    config = web_filter_collection.find_one({"type": "config"})
 
-    """Ensure basic structure exists in DB"""
+    if not config:
+        legacy = web_filter_collection.find_one({
+            "$or": [
+                {"categories": {"$exists": True}},
+                {"manual_blocks": {"$exists": True}},
+            ]
+        })
 
-    if web_filter_collection.count_documents({}) == 0:
+        if legacy:
+            web_filter_collection.update_one(
+                {"_id": legacy["_id"]},
+                {
+                    "$set": {
+                        "type": "config",
+                        "categories": legacy.get("categories", DEFAULT_CATEGORIES),
+                        "manual_blocks": legacy.get("manual_blocks", ["specific-cheating-site.com", "unblock-proxy.net"]),
+                    }
+                },
+            )
+            config = web_filter_collection.find_one({"_id": legacy["_id"]})
+        else:
+            doc = {
+                "type": "config",
+                "categories": DEFAULT_CATEGORIES,
+                "manual_blocks": ["specific-cheating-site.com", "unblock-proxy.net"],
+            }
+            inserted = web_filter_collection.insert_one(doc)
+            config = {"_id": inserted.inserted_id, **doc}
 
-        # Initialize default structure
+    if not config:
+        return
 
-        doc = {
+    updates = {}
 
-            "type": "config",
+    if not isinstance(config.get("categories"), dict):
+        updates["categories"] = DEFAULT_CATEGORIES
 
-            "categories": DEFAULT_CATEGORIES,
+    manual_blocks = config.get("manual_blocks")
+    if not isinstance(manual_blocks, list):
+        manual_blocks = []
+        updates["manual_blocks"] = []
 
-            "manual_blocks": ["specific-cheating-site.com", "unblock-proxy.net"]
+    legacy_manual_map = {
+        "specific-cheating-site": "specific-cheating-site.com",
+        "unblock-proxy": "unblock-proxy.net",
+    }
 
-        }
+    normalized_manual_blocks = []
+    seen = set()
+    for entry in manual_blocks:
+        normalized = normalize_filter_domain(entry)
+        if not normalized:
+            continue
+        normalized = legacy_manual_map.get(normalized, normalized)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_manual_blocks.append(normalized)
 
-        web_filter_collection.insert_one(doc)
+    if normalized_manual_blocks != manual_blocks:
+        updates["manual_blocks"] = normalized_manual_blocks
+
+    if updates:
+        config_id = config.get("_id")
+        if config_id is not None:
+            web_filter_collection.update_one({"_id": config_id}, {"$set": updates})
 
 
 
@@ -1158,16 +1351,39 @@ def toggle_category():
     try:
         from dns_filtering_manager import update_dnsmasq_blocklist
         print(f"\n🔄 {'Enabling' if new_status else 'Disabling'} {category} category via DNS...")
-        update_dnsmasq_blocklist()
-        print(f"✅ DNS blocklist updated")
+        dns_updated = update_dnsmasq_blocklist()
+        if dns_updated:
+            print("✅ DNS blocklist updated")
+        else:
+            print("⚠️ DNS blocklist update failed")
         
         # Update Firewall rules (IP Blocking)
         print(f"🔄 Updating Firewall rules...")
-        update_firewall_rules()
-        print(f"✅ Firewall rules updated")
+        firewall_updated = update_firewall_rules()
+        if firewall_updated:
+            print("✅ Firewall rules updated")
+        else:
+            print("⚠️ Firewall rules update failed")
+
+        if not dns_updated or not firewall_updated:
+            web_filter_collection.update_one(
+                {"type": "config"},
+                {"$set": {f"categories.{category}.active": current_status}}
+            )
+            return jsonify({
+                "message": "Category updated, but failed to apply filtering rules",
+                "active": new_status,
+                "dns_updated": dns_updated,
+                "firewall_updated": firewall_updated,
+            }), 500
         
     except Exception as e:
         print(f"⚠️ Update failed: {e}")
+        web_filter_collection.update_one(
+            {"type": "config"},
+            {"$set": {f"categories.{category}.active": current_status}}
+        )
+        return jsonify({"message": "Category updated, but applying filtering rules failed"}), 500
     
     return jsonify({"message": "Updated", "active": new_status}), 200
 
@@ -1178,40 +1394,71 @@ def toggle_category():
 def add_blocked_site():
     data = request.get_json() or {}
     url = data.get("url")
-    
+
     if not url:
         return jsonify({"message": "URL required"}), 400
-        
+
+    domain = normalize_filter_domain(url)
+    if not domain or "." not in domain:
+        return jsonify({"message": "Please enter a valid domain (example.com)"}), 400
+
     _refresh_web_filter_defaults()
-    
-    # Check if already exists
+
+    # Duplicate check after normalization
     config = web_filter_collection.find_one({"type": "config"}) or {}
-    if url in config.get("manual_blocks", []):
-         return jsonify({"message": "Already blocked"}), 409
-         
-    # Add to MongoDB
+    existing_domains = {
+        normalized
+        for item in config.get("manual_blocks", [])
+        for normalized in [normalize_filter_domain(item)]
+        if normalized
+    }
+    if domain in existing_domains:
+        return jsonify({"message": f"'{domain}' is already in the block list"}), 409
+
+    # Store normalized domain
     web_filter_collection.update_one(
         {"type": "config"},
-        {"$push": {"manual_blocks": url}}
+        {"$addToSet": {"manual_blocks": domain}}
     )
-    
+
     # Update DNS blocklist immediately
     try:
         from dns_filtering_manager import update_dnsmasq_blocklist
         from linux_firewall_manager import update_firewall_rules
-        
-        print(f"\n🔄 Blocking {url} via DNS...")
-        update_dnsmasq_blocklist()
-        print(f"✅ DNS blocklist updated")
-        
-        print(f"🔄 Blocking {url} via Firewall (IPs)...")
-        update_firewall_rules()
-        print(f"✅ Firewall rules updated")
-        
-        return jsonify({"message": f"Site blocked: {url}"}), 201
+
+        print(f"\n🔄 Blocking {domain} via DNS...")
+        dns_updated = update_dnsmasq_blocklist()
+        if dns_updated:
+            print("✅ DNS blocklist updated")
+        else:
+            print("⚠️ DNS blocklist update failed")
+
+        print(f"🔄 Blocking {domain} via Firewall (IPs)...")
+        firewall_updated = update_firewall_rules()
+        if firewall_updated:
+            print("✅ Firewall rules updated")
+        else:
+            print("⚠️ Firewall rules update failed")
+
+        if not dns_updated or not firewall_updated:
+            web_filter_collection.update_one(
+                {"type": "config"},
+                {"$pull": {"manual_blocks": domain}}
+            )
+            return jsonify({
+                "message": "Site saved, but failed to apply filtering rules",
+                "dns_updated": dns_updated,
+                "firewall_updated": firewall_updated,
+            }), 500
+
+        return jsonify({"message": f"Site blocked: {domain}"}), 201
     except Exception as e:
         print(f"⚠️ Update failed: {e}")
-        return jsonify({"message": "Site added to database but update failed"}), 201
+        web_filter_collection.update_one(
+            {"type": "config"},
+            {"$pull": {"manual_blocks": domain}}
+        )
+        return jsonify({"message": "Site added to database, but applying filtering rules failed"}), 500
 
 
 
@@ -1220,32 +1467,72 @@ def add_blocked_site():
 def remove_blocked_site():
     data = request.get_json() or {}
     url = data.get("url")
-    
+
     if not url:
         return jsonify({"message": "URL required"}), 400
-        
+
+    target = normalize_filter_domain(url)
+    if not target:
+        return jsonify({"message": "Invalid URL/domain"}), 400
+
     _refresh_web_filter_defaults()
-    
-    # Remove from MongoDB
+
+    config = web_filter_collection.find_one({"type": "config"}) or {}
+    existing_blocks = config.get("manual_blocks", [])
+    raw_value = str(url).strip().lower()
+
+    values_to_remove = {
+        entry
+        for entry in existing_blocks
+        if normalize_filter_domain(entry) == target
+        or str(entry).strip().lower() == raw_value
+    }
+
+    if not values_to_remove:
+        return jsonify({"message": "Site not found in manual block list"}), 404
+
+    # Remove all equivalent representations
     web_filter_collection.update_one(
         {"type": "config"},
-        {"$pull": {"manual_blocks": url}}
+        {"$pull": {"manual_blocks": {"$in": list(values_to_remove)}}}
     )
-    
+
     # Update DNS blocklist immediately
     try:
         from dns_filtering_manager import update_dnsmasq_blocklist
         from linux_firewall_manager import update_firewall_rules
-        
-        print(f"\n🔄 Unblocking {url} via DNS...")
-        update_dnsmasq_blocklist()
-        print(f"✅ DNS blocklist updated")
-        
-        print(f"🔄 Unblocking {url} via Firewall...")
-        update_firewall_rules()
-        print(f"✅ Firewall rules updated")
-        
-        return jsonify({"message": f"Site unblocked: {url}"}), 200
+
+        print(f"\n🔄 Unblocking {target} via DNS...")
+        dns_updated = update_dnsmasq_blocklist()
+        if dns_updated:
+            print("✅ DNS blocklist updated")
+        else:
+            print("⚠️ DNS blocklist update failed")
+
+        print(f"🔄 Unblocking {target} via Firewall...")
+        firewall_updated = update_firewall_rules()
+        if firewall_updated:
+            print("✅ Firewall rules updated")
+        else:
+            print("⚠️ Firewall rules update failed")
+
+        if not dns_updated or not firewall_updated:
+            web_filter_collection.update_one(
+                {"type": "config"},
+                {"$addToSet": {"manual_blocks": {"$each": list(values_to_remove)}}}
+            )
+            return jsonify({
+                "message": "Site removed, but failed to apply filtering rules",
+                "dns_updated": dns_updated,
+                "firewall_updated": firewall_updated,
+            }), 500
+
+        return jsonify({"message": f"Site unblocked: {target}"}), 200
     except Exception as e:
         print(f"⚠️ Update failed: {e}")
-        return jsonify({"message": "Site removed from database but update failed"}), 200
+        if values_to_remove:
+            web_filter_collection.update_one(
+                {"type": "config"},
+                {"$addToSet": {"manual_blocks": {"$each": list(values_to_remove)}}}
+            )
+        return jsonify({"message": "Site removed from database, but applying filtering rules failed"}), 500

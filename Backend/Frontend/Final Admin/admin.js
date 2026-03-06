@@ -397,7 +397,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         try {
-            // Fetch filtering configuration from backend
             const response = await fetch('/api/admin/filtering', {
                 headers: { 'Authorization': 'Bearer ' + token }
             });
@@ -411,6 +410,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const categories = data.categories || {};
             const manualBlocks = data.manual_blocks || [];
 
+            // Build normalized domain set from stored manual entries
+            window._blockedSitesSet = new Set(
+                manualBlocks.map(site => normalizeDomain(site)).filter(Boolean)
+            );
+
             // Update local db object for compatibility with existing code
             db.siteCategories = categories;
             db.blockedSites = manualBlocks;
@@ -420,15 +424,19 @@ document.addEventListener("DOMContentLoaded", () => {
             if (blockedSitesList) {
                 blockedSitesList.innerHTML = "";
 
-                // Add manually blocked sites
-                manualBlocks.forEach(url => addBlockedSiteToDOM(url, false));
+                if (manualBlocks.length === 0) {
+                    blockedSitesList.innerHTML = '<li style="color:var(--text-secondary);font-style:italic;padding:8px 0;">No sites manually blocked yet.</li>';
+                } else {
+                    manualBlocks.forEach(site => addBlockedSiteToDOM(site));
+                }
 
-                // Add category sites
+                // Add category sites (read-only, cannot be individually removed)
                 Object.keys(categories).forEach(categoryName => {
                     const cat = categories[categoryName];
                     if (cat.active && Array.isArray(cat.sites)) {
                         cat.sites.forEach(site => {
-                            if (!manualBlocks.includes(site)) {
+                            const normalizedSite = normalizeDomain(site);
+                            if (!window._blockedSitesSet.has(normalizedSite)) {
                                 addBlockedSiteToDOM(site, true, categoryName);
                             }
                         });
@@ -670,8 +678,341 @@ document.addEventListener("DOMContentLoaded", () => {
             });
     }
 
-    function initSettings() {
-        // Placeholder
+    async function initSettings() {
+        const token = localStorage.getItem('admin_token');
+        if (!token) {
+            window.location.href = '/admin/login';
+            return;
+        }
+
+        function decodeJwtPayload(rawToken) {
+            try {
+                const payloadPart = rawToken.split('.')[1];
+                if (!payloadPart) return null;
+                const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+                const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+                return JSON.parse(atob(padded));
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function formatHours(value) {
+            const hours = Number(value) || 2;
+            return `${hours} hour${hours === 1 ? '' : 's'}`;
+        }
+
+        function clampTimeout(value, fallback = 2) {
+            const parsed = Number.parseInt(value, 10);
+            if (!Number.isFinite(parsed)) return fallback;
+            return Math.min(24, Math.max(1, parsed));
+        }
+
+        async function readApiPayload(response) {
+            const raw = await response.text();
+            let data = {};
+            if (raw) {
+                try {
+                    data = JSON.parse(raw);
+                } catch (_) {
+                    data = {};
+                }
+            }
+            return { data, raw };
+        }
+
+        function extractApiMessage(response, payload) {
+            const data = payload && payload.data && typeof payload.data === 'object' ? payload.data : {};
+            if (typeof data.message === 'string' && data.message.trim()) return data.message;
+            if (typeof data.msg === 'string' && data.msg.trim()) return data.msg;
+
+            const raw = payload && typeof payload.raw === 'string' ? payload.raw.trim() : '';
+            if (raw && raw[0] !== '<') return raw;
+
+            if (response.status === 404) {
+                return 'Password/settings API not found on backend. Restart backend and login again.';
+            }
+            if (response.status === 401) {
+                return 'Session expired. Please login again.';
+            }
+            return `Request failed (${response.status}).`;
+        }
+
+        // --- Show status badge helper ---
+        function showBadge(msg, color = '#15803d', bg = '#dcfce7') {
+            const badge = document.getElementById('settings-status-badge');
+            if (!badge) return;
+            badge.textContent = (color === '#15803d' ? '✔ ' : '✖ ') + msg;
+            badge.style.background = bg;
+            badge.style.color = color;
+            badge.style.display = 'inline-block';
+            setTimeout(() => { badge.style.display = 'none'; }, 3500);
+        }
+
+        const payload = decodeJwtPayload(token) || {};
+        const usernameEl = document.getElementById('settings-admin-username');
+        if (usernameEl) {
+            usernameEl.textContent = `Logged in as: ${payload.username || 'admin'}`;
+        }
+
+        const sessionInfoEl = document.getElementById('settings-session-info');
+        if (sessionInfoEl) {
+            const exp = Number(payload.exp);
+            if (Number.isFinite(exp)) {
+                const expiryTime = new Date(exp * 1000);
+                sessionInfoEl.textContent = `Current session expires: ${expiryTime.toLocaleString()}`;
+            } else {
+                sessionInfoEl.textContent = 'Current session expiry unavailable.';
+            }
+        }
+
+        const timeoutInfoEl = document.getElementById('timeout-current-info');
+        const timeoutMsgEl = document.getElementById('timeout-msg');
+        const adminTimeoutInput = document.getElementById('admin-timeout');
+        const studentTimeoutInput = document.getElementById('student-timeout');
+
+        function renderTimeoutInfo(adminHours, studentHours, draft = false) {
+            if (!timeoutInfoEl) return;
+            timeoutInfoEl.style.borderColor = draft ? '#fcd34d' : '#dbeafe';
+            timeoutInfoEl.style.background = draft ? '#fffbeb' : '#eff6ff';
+            timeoutInfoEl.style.color = draft ? '#92400e' : '#1e3a8a';
+            timeoutInfoEl.textContent = `${draft ? 'Draft policy' : 'Current policy'}: Admin ${formatHours(adminHours)}, Student ${formatHours(studentHours)}. Applies to new logins immediately.`;
+        }
+
+        // --- Password strength meter ---
+        const newPwInput = document.getElementById('new-password');
+        if (newPwInput) {
+            newPwInput.addEventListener('input', () => {
+                const val = newPwInput.value;
+                const wrap = document.getElementById('pw-strength-wrap');
+                const bar = document.getElementById('pw-strength-bar');
+                const label = document.getElementById('pw-strength-label');
+                if (!wrap || !bar || !label) return;
+                wrap.style.display = val.length > 0 ? 'block' : 'none';
+                let score = 0;
+                if (val.length >= 8) score++;
+                if (/[A-Z]/.test(val)) score++;
+                if (/[0-9]/.test(val)) score++;
+                if (/[^A-Za-z0-9]/.test(val)) score++;
+                const levels = [
+                    { color: '#ef4444', text: 'Weak' },
+                    { color: '#f97316', text: 'Fair' },
+                    { color: '#eab308', text: 'Good' },
+                    { color: '#22c55e', text: 'Strong' },
+                ];
+                const lvl = levels[Math.min(score, 3)];
+                bar.style.background = lvl.color;
+                bar.style.width = `${(score / 4) * 100}%`;
+                label.textContent = `Strength: ${lvl.text}`;
+                label.style.color = lvl.color;
+            });
+        }
+
+        // --- Eye toggle for password fields ---
+        document.querySelectorAll('.toggle-pw').forEach(icon => {
+            icon.addEventListener('click', () => {
+                const input = document.getElementById(icon.dataset.target);
+                if (!input) return;
+                const isHidden = input.type === 'password';
+                input.type = isHidden ? 'text' : 'password';
+                icon.classList.toggle('fa-eye-slash', !isHidden);
+                icon.classList.toggle('fa-eye', isHidden);
+            });
+        });
+
+        // --- Change Password Form ---
+        const pwForm = document.getElementById('change-password-form');
+        if (pwForm) {
+            pwForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const errEl = document.getElementById('pw-error');
+                const currentPw = document.getElementById('current-password')?.value || '';
+                const newPw = document.getElementById('new-password')?.value || '';
+                const confirmPw = document.getElementById('confirm-password')?.value || '';
+                const submitBtn = pwForm.querySelector('button[type="submit"]');
+                const defaultBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+
+                if (errEl) errEl.style.display = 'none';
+
+                if (!currentPw) {
+                    if (errEl) {
+                        errEl.textContent = 'Current password is required.';
+                        errEl.style.display = 'block';
+                    }
+                    return;
+                }
+
+                if (newPw !== confirmPw) {
+                    if (errEl) { errEl.textContent = 'New passwords do not match.'; errEl.style.display = 'block'; }
+                    return;
+                }
+                if (newPw.length < 6) {
+                    if (errEl) { errEl.textContent = 'Password must be at least 6 characters.'; errEl.style.display = 'block'; }
+                    return;
+                }
+
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<i class="fa-solid fa-key" style="margin-right: 6px"></i> Updating...';
+                }
+
+                try {
+                    const res = await fetch('/api/admin/change-password', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        },
+                        body: JSON.stringify({ current_password: currentPw, new_password: newPw })
+                    });
+                    const payload = await readApiPayload(res);
+                    const data = payload.data;
+
+                    if (res.status === 401) {
+                        window.location.href = '/admin/login';
+                        return;
+                    }
+
+                    if (res.ok) {
+                        pwForm.reset();
+                        const wrap = document.getElementById('pw-strength-wrap');
+                        if (wrap) wrap.style.display = 'none';
+                        showBadge('Password Updated');
+                    } else {
+                        if (errEl) {
+                            errEl.textContent = extractApiMessage(res, payload);
+                            errEl.style.display = 'block';
+                        }
+                    }
+                } catch (err) {
+                    if (errEl) { errEl.textContent = 'Server error. Please try again.'; errEl.style.display = 'block'; }
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = defaultBtnHtml;
+                    }
+                }
+            });
+        }
+
+        // --- Load existing timeout settings ---
+        let currentTimeouts = { admin: 2, student: 2 };
+
+        try {
+            const res = await fetch('/api/admin/settings/timeout', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const payload = await readApiPayload(res);
+            const data = payload.data;
+
+            if (res.status === 401) {
+                window.location.href = '/admin/login';
+                return;
+            }
+
+            if (res.ok) {
+                currentTimeouts = {
+                    admin: clampTimeout(data.admin_timeout_hours, 2),
+                    student: clampTimeout(data.student_timeout_hours, 2),
+                };
+            } else if (timeoutMsgEl) {
+                timeoutMsgEl.style.display = 'block';
+                timeoutMsgEl.style.color = '#dc2626';
+                timeoutMsgEl.textContent = extractApiMessage(res, payload);
+            }
+        } catch (_) {
+            if (timeoutMsgEl) {
+                timeoutMsgEl.style.display = 'block';
+                timeoutMsgEl.style.color = '#dc2626';
+                timeoutMsgEl.textContent = 'Could not reach server to load timeout settings.';
+            }
+        }
+
+        if (adminTimeoutInput) adminTimeoutInput.value = String(currentTimeouts.admin);
+        if (studentTimeoutInput) studentTimeoutInput.value = String(currentTimeouts.student);
+        renderTimeoutInfo(currentTimeouts.admin, currentTimeouts.student, false);
+
+        const updateTimeoutDraft = () => {
+            const adminHours = clampTimeout(adminTimeoutInput?.value, currentTimeouts.admin);
+            const studentHours = clampTimeout(studentTimeoutInput?.value, currentTimeouts.student);
+            renderTimeoutInfo(adminHours, studentHours, true);
+        };
+
+        if (adminTimeoutInput) {
+            adminTimeoutInput.addEventListener('input', updateTimeoutDraft);
+            adminTimeoutInput.addEventListener('blur', () => {
+                adminTimeoutInput.value = String(clampTimeout(adminTimeoutInput.value, currentTimeouts.admin));
+                updateTimeoutDraft();
+            });
+        }
+
+        if (studentTimeoutInput) {
+            studentTimeoutInput.addEventListener('input', updateTimeoutDraft);
+            studentTimeoutInput.addEventListener('blur', () => {
+                studentTimeoutInput.value = String(clampTimeout(studentTimeoutInput.value, currentTimeouts.student));
+                updateTimeoutDraft();
+            });
+        }
+
+        // --- Save Timeout Button ---
+        const saveTimeoutBtn = document.getElementById('save-timeout-btn');
+        if (saveTimeoutBtn) {
+            saveTimeoutBtn.addEventListener('click', async () => {
+                const adminHours = clampTimeout(adminTimeoutInput?.value, currentTimeouts.admin);
+                const studentHours = clampTimeout(studentTimeoutInput?.value, currentTimeouts.student);
+                const defaultBtnHtml = saveTimeoutBtn.innerHTML;
+
+                if (adminTimeoutInput) adminTimeoutInput.value = String(adminHours);
+                if (studentTimeoutInput) studentTimeoutInput.value = String(studentHours);
+
+                saveTimeoutBtn.disabled = true;
+                saveTimeoutBtn.innerHTML = '<i class="fa-solid fa-floppy-disk" style="margin-right: 6px"></i> Saving...';
+                if (timeoutMsgEl) timeoutMsgEl.style.display = 'none';
+
+                try {
+                    const res = await fetch('/api/admin/settings/timeout', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        },
+                        body: JSON.stringify({ admin_timeout_hours: adminHours, student_timeout_hours: studentHours })
+                    });
+                    const payload = await readApiPayload(res);
+
+                    if (res.status === 401) {
+                        window.location.href = '/admin/login';
+                        return;
+                    }
+
+                    if (res.ok) {
+                        currentTimeouts = { admin: adminHours, student: studentHours };
+                        showBadge('Timeout Saved');
+                        renderTimeoutInfo(currentTimeouts.admin, currentTimeouts.student, false);
+                        if (timeoutMsgEl) {
+                            timeoutMsgEl.style.display = 'block';
+                            timeoutMsgEl.style.color = '#15803d';
+                            timeoutMsgEl.textContent = `✔ Settings saved. New login sessions now use Admin ${formatHours(adminHours)} and Student ${formatHours(studentHours)}.`;
+                        }
+                    } else {
+                        if (timeoutMsgEl) {
+                            timeoutMsgEl.style.display = 'block';
+                            timeoutMsgEl.style.color = '#dc2626';
+                            timeoutMsgEl.textContent = extractApiMessage(res, payload);
+                        }
+                    }
+                } catch (err) {
+                    if (timeoutMsgEl) {
+                        timeoutMsgEl.style.display = 'block';
+                        timeoutMsgEl.style.color = '#dc2626';
+                        timeoutMsgEl.textContent = 'Server error.';
+                    }
+                } finally {
+                    saveTimeoutBtn.disabled = false;
+                    saveTimeoutBtn.innerHTML = defaultBtnHtml;
+                }
+            });
+        }
     }
 
     function initApStatus() {
@@ -781,8 +1122,9 @@ document.addEventListener("DOMContentLoaded", () => {
             closeEditModal();
         }
 
-        if (e.target.closest('.btn-remove')) {
-            handleRemoveSite(e.target);
+        const removeBtnEl = e.target.closest('.btn-remove');
+        if (removeBtnEl) {
+            handleRemoveSite(removeBtnEl);
         }
 
         if (e.target.classList.contains('filter-toggle')) {
@@ -851,15 +1193,26 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.target.id === 'website-block-form') {
             e.preventDefault();
             const websiteInput = document.getElementById("website-input");
-            const url = websiteInput.value.trim();
+            const rawInput = websiteInput.value.trim();
+            if (!rawInput) return;
 
-            if (!url) return;
-
-            const token = localStorage.getItem('admin_token');
-            if (!token) {
-                alert('Please log in as admin');
+            const domain = normalizeDomain(rawInput);
+            if (!domain || !domain.includes('.')) {
+                showFilteringError('Invalid URL — could not detect a domain.');
                 return;
             }
+
+            // Local duplicate check — no round-trip needed
+            if (window._blockedSitesSet && window._blockedSitesSet.has(domain)) {
+                showFilteringError(`"${domain}" is already in the block list.`);
+                return;
+            }
+
+            const token = localStorage.getItem('admin_token');
+            if (!token) { alert('Please log in as admin'); return; }
+
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Blocking…'; }
 
             fetch('/api/admin/filtering/sites', {
                 method: 'POST',
@@ -867,24 +1220,36 @@ document.addEventListener("DOMContentLoaded", () => {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer ' + token
                 },
-                body: JSON.stringify({ url })
+                body: JSON.stringify({ url: rawInput })
             })
-                .then(async (res) => {
-                    if (!res.ok) {
-                        const error = await res.json();
-                        alert(error.message || 'Failed to block site');
-                        return;
-                    }
-                    const result = await res.json();
-                    addLog('warn', 'ADMIN', `Manually blocked site: ${url}`);
-                    websiteInput.value = "";
-                    // Reload filtering page to show updated list
-                    initWebFiltering();
-                })
-                .catch(err => {
-                    console.error('Error blocking site:', err);
-                    alert('Request error');
-                });
+            .then(async (res) => {
+                const result = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showFilteringError(result.message || 'Failed to block site');
+                    return;
+                }
+                // Optimistic UI: add to set and DOM immediately
+                websiteInput.value = '';
+                addLog('warn', 'ADMIN', `Manually blocked site: ${domain}`);
+                if (!window._blockedSitesSet) window._blockedSitesSet = new Set();
+                window._blockedSitesSet.add(domain);
+                db.blockedSites = [...(db.blockedSites || []), domain];
+
+                // Remove placeholder if present
+                const list = document.getElementById('blocked-sites-list');
+                if (list) {
+                    const placeholder = list.querySelector('li[style]');
+                    if (placeholder && placeholder.textContent.includes('No sites')) placeholder.remove();
+                }
+                addBlockedSiteToDOM(domain, false, false, true /* prepend */);
+            })
+            .catch(err => {
+                console.error('Error blocking site:', err);
+                showFilteringError('Request error — please try again.');
+            })
+            .finally(() => {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Block Website'; }
+            });
         }
 
         if (e.target.id === 'network-settings-form') {
@@ -1082,20 +1447,58 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function handleRemoveSite(button) {
-        const li = button.closest("li");
-        const url = li.querySelector("span").textContent;
-        let index = db.blockedSites.indexOf(url);
-        if (index > -1) db.blockedSites.splice(index, 1);
-        let isInCategory = false;
-        Object.keys(db.siteCategories).forEach(key => {
-            if (db.siteCategories[key].active && db.siteCategories[key].sites.includes(url)) isInCategory = true;
+        const li = button.closest('li');
+        if (!li) return;
+        // Manual site is stored in data-site by addBlockedSiteToDOM
+        const site = li.dataset.site;
+        if (!site) { li.remove(); return; }
+
+        const token = localStorage.getItem('admin_token');
+        if (!token) { alert('Please log in as admin'); return; }
+
+        // Optimistic removal
+        li.style.opacity = '0.4';
+        button.disabled = true;
+
+        fetch('/api/admin/filtering/sites', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ url: site })
+        })
+        .then(async res => {
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.message || 'Failed to remove site');
+                li.style.opacity = '1';
+                button.disabled = false;
+                return;
+            }
+            // Update in-memory state
+            if (window._blockedSitesSet) window._blockedSitesSet.delete(site);
+            db.blockedSites = (db.blockedSites || []).filter(b => normalizeDomain(b) !== site);
+            addLog('info', 'ADMIN', `Removed manual block: ${site}`);
+            li.remove();
+
+            // Show placeholder if list is now empty
+            const list = document.getElementById('blocked-sites-list');
+            if (list && list.querySelectorAll('li[data-site]').length === 0) {
+                // Check if all remaining are category sites
+                const allLis = list.querySelectorAll('li');
+                const hasManual = [...allLis].some(l => l.dataset.site);
+                if (!hasManual) {
+                    list.insertAdjacentHTML('afterbegin', '<li style="color:var(--text-secondary);font-style:italic;padding:8px 0;">No sites manually blocked yet.</li>');
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error removing site:', err);
+            alert('Request error — please try again.');
+            li.style.opacity = '1';
+            button.disabled = false;
         });
-        if (isInCategory) {
-            alert(`Cannot manually remove ${url}. It is part of an active blocked category. Disable the category first.`);
-            return;
-        }
-        addLog('info', 'ADMIN', `Removed ${url} from block list`);
-        li.remove();
     }
 
     async function handleCategoryToggle(button) {
@@ -1117,8 +1520,9 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             if (!response.ok) {
-                console.error('Failed to toggle category');
-                alert('Failed to update category');
+                const err = await response.json().catch(() => ({}));
+                console.error('Failed to toggle category', err);
+                alert(err.message || 'Failed to update category');
                 return;
             }
 
@@ -1490,12 +1894,104 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- Utility Functions ---
-    function addBlockedSiteToDOM(url, isCategorySite, prepend = false) {
-        const blockedSitesList = document.getElementById("blocked-sites-list");
+    // ─── URL / Domain Utility Functions ────────────────────────────────────────
+
+    function normalizeDomain(url) {
+        let value = (url || '').trim().toLowerCase();
+        if (!value) return '';
+
+        if (value.includes('://')) {
+            value = value.split('://', 2)[1];
+        }
+        if (value.startsWith('//')) {
+            value = value.slice(2);
+        }
+
+        value = value.split('/')[0].split('?')[0].split('#')[0];
+
+        if (value.includes('@')) {
+            value = value.split('@').pop();
+        }
+
+        const colonIndex = value.lastIndexOf(':');
+        if (colonIndex > -1) {
+            const maybePort = value.slice(colonIndex + 1);
+            if (/^[0-9]+$/.test(maybePort)) {
+                value = value.slice(0, colonIndex);
+            }
+        }
+
+        if (value.startsWith('www.')) {
+            value = value.slice(4);
+        }
+
+        return value.replace(/^\.+|\.+$/g, '');
+    }
+
+    function isSiteBlocked(testUrl, blockedSitesSet) {
+        const domain = normalizeDomain(testUrl);
+        if (!blockedSitesSet || blockedSitesSet.size === 0 || !domain) return false;
+        if (blockedSitesSet.has(domain)) return true;
+        return [...blockedSitesSet].some(stored => domain.endsWith('.' + stored));
+    }
+
+    /**
+     * Show an inline error message under the block-site form.
+     */
+    function showFilteringError(msg) {
+        let errEl = document.getElementById('filtering-error-msg');
+        if (!errEl) {
+            const form = document.getElementById('website-block-form');
+            if (!form) return;
+            errEl = document.createElement('p');
+            errEl.id = 'filtering-error-msg';
+            errEl.style.cssText = 'color:#ef4444;margin:6px 0 0;font-size:0.88em;';
+            form.after(errEl);
+        }
+        errEl.textContent = msg;
+        errEl.style.display = 'block';
+        clearTimeout(errEl._hideTimer);
+        errEl._hideTimer = setTimeout(() => { errEl.style.display = 'none'; }, 4000);
+    }
+
+    // ─── Utility Functions ──────────────────────────────────────────────────────
+
+    /**
+     * Add a blocked entry to the UI list.
+     * @param {string} siteOrUrl  - The domain stored in DB or a category site URL
+     * @param {boolean} isCategorySite - If true, this is a read-only category-controlled entry
+     * @param {string|false} categoryName - Name of the category if isCategorySite
+     * @param {boolean} prepend - Insert at top of list instead of bottom
+     */
+    function addBlockedSiteToDOM(siteOrUrl, isCategorySite = false, categoryName = false, prepend = false) {
+        const blockedSitesList = document.getElementById('blocked-sites-list');
         if (!blockedSitesList) return;
-        const li = document.createElement("li");
-        li.innerHTML = `<span>${url}</span> ${isCategorySite ? `<small style="color: var(--text-secondary);">(Blocked by category)</small>` : `<button class="btn btn-remove"><i class="fa-solid fa-trash"></i></button>`}`;
+
+        const li = document.createElement('li');
+        li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border,#e5e7eb);transition:opacity 0.2s;';
+
+        const display = normalizeDomain(siteOrUrl) || String(siteOrUrl || '').trim().toLowerCase();
+
+        if (isCategorySite) {
+            // Category-controlled site — display-only
+            li.innerHTML = `
+                <span style="flex:1;">
+                    <strong>${display}</strong>
+                    <small style="margin-left:6px;color:var(--text-secondary);">📂 ${categoryName || 'Category'}</small>
+                </span>`;
+        } else {
+            // Manually added domain — store in data attribute for removal
+            li.dataset.site = display;
+            li.innerHTML = `
+                <span style="flex:1;">
+                    <strong style="font-family:monospace;">${display}</strong>
+                    <small style="margin-left:8px;color:var(--text-secondary);font-size:0.8em;">🔒 Blocks ${display} and subdomains</small>
+                </span>
+                <button class="btn btn-remove" title="Remove block" style="flex-shrink:0;">
+                    <i class="fa-solid fa-trash"></i>
+                </button>`;
+        }
+
         if (prepend) {
             blockedSitesList.prepend(li);
         } else {

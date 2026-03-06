@@ -37,6 +37,46 @@ auth_routes = Blueprint("auth_routes", __name__)
 
 SECRET_KEY = "your-secret-key"
 
+DEFAULT_ADMIN_TIMEOUT_HOURS = 2
+DEFAULT_STUDENT_TIMEOUT_HOURS = 2
+MIN_TIMEOUT_HOURS = 1
+MAX_TIMEOUT_HOURS = 24
+
+
+def _parse_timeout_hours(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_session_timeout_settings():
+    defaults = {
+        "admin_timeout_hours": DEFAULT_ADMIN_TIMEOUT_HOURS,
+        "student_timeout_hours": DEFAULT_STUDENT_TIMEOUT_HOURS,
+    }
+
+    try:
+        settings_doc = db["admin_settings"].find_one({"type": "session_timeout"}) or {}
+    except Exception:
+        return defaults
+
+    admin_hours = _parse_timeout_hours(settings_doc.get("admin_timeout_hours"))
+    student_hours = _parse_timeout_hours(settings_doc.get("student_timeout_hours"))
+
+    if admin_hours is None:
+        admin_hours = defaults["admin_timeout_hours"]
+    if student_hours is None:
+        student_hours = defaults["student_timeout_hours"]
+
+    admin_hours = max(MIN_TIMEOUT_HOURS, min(MAX_TIMEOUT_HOURS, admin_hours))
+    student_hours = max(MIN_TIMEOUT_HOURS, min(MAX_TIMEOUT_HOURS, student_hours))
+
+    return {
+        "admin_timeout_hours": admin_hours,
+        "student_timeout_hours": student_hours,
+    }
+
 
 def _get_hotspot_network():
     subnet = os.environ.get("HOTSPOT_SUBNET", "192.168.50.0/24")
@@ -241,16 +281,20 @@ def login():
         except Exception as e:
             print(f"⚠️ Failed to apply bandwidth policy: {e}")
 
+    timeout_settings = _get_session_timeout_settings()
+    student_timeout_hours = timeout_settings["student_timeout_hours"]
+
     token = jwt.encode({
         "roll_no": roll_no,
         "role": "student",
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=student_timeout_hours)
     }, SECRET_KEY, algorithm="HS256")
 
     return jsonify({
         "status": "success",
         "token": token,
         "role": "student",
+        "session_timeout_hours": student_timeout_hours,
         "msg": "Login successful"
     }), 200
 
@@ -347,13 +391,17 @@ def admin_login():
     if not admin or not check_password_hash(admin["password"], password):
         return jsonify({"message": "Invalid admin credentials"}), 401
 
+    timeout_settings = _get_session_timeout_settings()
+    admin_timeout_hours = timeout_settings["admin_timeout_hours"]
+
     token = jwt.encode({
         "username": username,
         "role": "admin",
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=admin_timeout_hours)
     }, SECRET_KEY, algorithm="HS256")
 
     return jsonify({
         "token": token,
-        "role": "admin"
+        "role": "admin",
+        "session_timeout_hours": admin_timeout_hours,
     }), 200

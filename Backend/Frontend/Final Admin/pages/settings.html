@@ -1,26 +1,386 @@
-<section class="page" id="filtering-page">
-    <div class="card">
-        <h2>Block Categories</h2>
-        <p>Block access to entire categories of websites for all students.</p>
-        <div class="filter-categories" id="filter-categories">
-            <!-- Toggles will be injected here by admin.js -->
-        </div>
+<section class="page" id="settings-page">
+  <!-- Admin Profile Card -->
+  <div
+    class="card"
+    style="display: flex; align-items: center; gap: 20px; padding: 24px 28px"
+  >
+    <div
+      style="
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #1a3c6e, #2d6cbe);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      "
+    >
+      <i
+        class="fa-solid fa-user-shield"
+        style="font-size: 1.8rem; color: #fff"
+      ></i>
     </div>
-    
-    <div class="card">
-        <h2>Manual Website Blocking</h2>
-        <p>Block a specific website URL.</p>
-        <!-- This form now uses the "form-row" class -->
-        <form class="form-row" id="website-block-form">
-            <input type="text" id="website-input" placeholder="e.g., specific-gaming-site.com" required>
-            <button type="submit" class="btn btn-primary">Block Website</button>
-        </form>
+    <div>
+      <h2 style="margin: 0; font-size: 1.25rem">Administrator Account</h2>
+      <p
+        style="margin: 4px 0 0; color: #64748b; font-size: 0.9rem"
+        id="settings-admin-username"
+      >
+        Loading...
+      </p>
+      <p
+        style="margin: 4px 0 0; color: #64748b; font-size: 0.82rem"
+        id="settings-session-info"
+      >
+        Session details loading...
+      </p>
+    </div>
+    <span
+      id="settings-status-badge"
+      style="
+        margin-left: auto;
+        background: #dcfce7;
+        color: #15803d;
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        display: none;
+      "
+      >✔ Saved</span
+    >
+  </div>
+
+  <!-- Change Password Card -->
+  <div class="card" style="margin-top: 20px">
+    <h2
+      style="
+        margin-top: 0;
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      "
+    >
+      <i class="fa-solid fa-lock" style="color: #2d6cbe"></i> Change Password
+    </h2>
+    <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 20px">
+      Update your admin account password. You'll need your current password to
+      make changes.
+    </p>
+
+    <form id="change-password-form" autocomplete="off">
+      <div style="display: grid; gap: 16px; max-width: 480px">
+        <div>
+          <label
+            style="
+              display: block;
+              font-size: 0.85rem;
+              font-weight: 600;
+              color: #374151;
+              margin-bottom: 6px;
+            "
+            >Current Password</label
+          >
+          <div style="position: relative">
+            <input
+              type="password"
+              id="current-password"
+              placeholder="Enter current password"
+              style="
+                width: 100%;
+                padding: 10px 40px 10px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-size: 0.95rem;
+                box-sizing: border-box;
+                outline: none;
+              "
+              onfocus="this.style.borderColor = '#2d6cbe'"
+              onblur="this.style.borderColor = '#d1d5db'"
+            />
+            <i
+              class="fa-solid fa-eye-slash toggle-pw"
+              data-target="current-password"
+              style="
+                position: absolute;
+                right: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: #9ca3af;
+                cursor: pointer;
+              "
+            ></i>
+          </div>
+        </div>
+        <div>
+          <label
+            style="
+              display: block;
+              font-size: 0.85rem;
+              font-weight: 600;
+              color: #374151;
+              margin-bottom: 6px;
+            "
+            >New Password</label
+          >
+          <div style="position: relative">
+            <input
+              type="password"
+              id="new-password"
+              placeholder="Enter new password"
+              style="
+                width: 100%;
+                padding: 10px 40px 10px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-size: 0.95rem;
+                box-sizing: border-box;
+                outline: none;
+              "
+              onfocus="this.style.borderColor = '#2d6cbe'"
+              onblur="this.style.borderColor = '#d1d5db'"
+            />
+            <i
+              class="fa-solid fa-eye-slash toggle-pw"
+              data-target="new-password"
+              style="
+                position: absolute;
+                right: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: #9ca3af;
+                cursor: pointer;
+              "
+            ></i>
+          </div>
+        </div>
+        <div>
+          <label
+            style="
+              display: block;
+              font-size: 0.85rem;
+              font-weight: 600;
+              color: #374151;
+              margin-bottom: 6px;
+            "
+            >Confirm New Password</label
+          >
+          <div style="position: relative">
+            <input
+              type="password"
+              id="confirm-password"
+              placeholder="Confirm new password"
+              style="
+                width: 100%;
+                padding: 10px 40px 10px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-size: 0.95rem;
+                box-sizing: border-box;
+                outline: none;
+              "
+              onfocus="this.style.borderColor = '#2d6cbe'"
+              onblur="this.style.borderColor = '#d1d5db'"
+            />
+            <i
+              class="fa-solid fa-eye-slash toggle-pw"
+              data-target="confirm-password"
+              style="
+                position: absolute;
+                right: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: #9ca3af;
+                cursor: pointer;
+              "
+            ></i>
+          </div>
+        </div>
+
+        <!-- Strength Meter -->
+        <div id="pw-strength-wrap" style="display: none">
+          <div
+            style="
+              height: 6px;
+              background: #e5e7eb;
+              border-radius: 4px;
+              overflow: hidden;
+            "
+          >
+            <div
+              id="pw-strength-bar"
+              style="
+                height: 100%;
+                width: 0%;
+                border-radius: 4px;
+                transition: all 0.3s;
+              "
+            ></div>
+          </div>
+          <p
+            id="pw-strength-label"
+            style="margin: 4px 0 0; font-size: 0.8rem; color: #6b7280"
+          ></p>
+        </div>
+
+        <div
+          id="pw-error"
+          style="color: #dc2626; font-size: 0.85rem; display: none"
+        ></div>
+
+        <button
+          type="submit"
+          class="btn btn-primary"
+          style="width: fit-content; padding: 10px 28px"
+        >
+          <i class="fa-solid fa-key" style="margin-right: 6px"></i> Update
+          Password
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Session Timeout Card -->
+  <div class="card" style="margin-top: 20px">
+    <h2
+      style="
+        margin-top: 0;
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      "
+    >
+      <i class="fa-solid fa-clock" style="color: #2d6cbe"></i> Session Timeout
+    </h2>
+    <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 20px">
+      Control how long admin and student sessions remain active before requiring
+      re-login.
+    </p>
+
+    <div
+      id="timeout-current-info"
+      style="
+        margin-bottom: 14px;
+        max-width: 600px;
+        border: 1px solid #dbeafe;
+        border-radius: 10px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        font-size: 0.85rem;
+        padding: 10px 14px;
+      "
+    >
+      Loading current timeout policy...
     </div>
 
-    <div class="card">
-        <h3>Manually Blocked Websites List</h3>
-        <ul class="blocked-list" id="blocked-sites-list">
-            <!-- Blocked sites will be injected here by admin.js -->
-        </ul>
+    <div
+      style="
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        max-width: 600px;
+      "
+    >
+      <!-- Admin Session -->
+      <div
+        style="
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 18px;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+          "
+        >
+          <i class="fa-solid fa-user-shield" style="color: #2d6cbe"></i>
+          <strong style="font-size: 0.9rem">Admin Session</strong>
+        </div>
+        <input
+          type="number"
+          id="admin-timeout"
+          min="1"
+          max="24"
+          step="1"
+          value="2"
+          style="
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background: #fff;
+            box-sizing: border-box;
+          "
+        />
+        <p style="margin: 8px 0 0; font-size: 0.78rem; color: #94a3b8">
+          Hours for new admin login tokens (1-24)
+        </p>
+      </div>
+
+      <!-- Student Session -->
+      <div
+        style="
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 18px;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+          "
+        >
+          <i class="fa-solid fa-user-graduate" style="color: #2d6cbe"></i>
+          <strong style="font-size: 0.9rem">Student Session</strong>
+        </div>
+        <input
+          type="number"
+          id="student-timeout"
+          min="1"
+          max="24"
+          step="1"
+          value="2"
+          style="
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background: #fff;
+            box-sizing: border-box;
+          "
+        />
+        <p style="margin: 8px 0 0; font-size: 0.78rem; color: #94a3b8">
+          Hours for new student login tokens (1-24)
+        </p>
+      </div>
     </div>
+
+    <div
+      id="timeout-msg"
+      style="margin-top: 12px; font-size: 0.85rem; display: none"
+    ></div>
+
+    <button
+      id="save-timeout-btn"
+      class="btn btn-primary"
+      style="margin-top: 20px; padding: 10px 28px"
+    >
+      <i class="fa-solid fa-floppy-disk" style="margin-right: 6px"></i> Save
+      Timeout Settings
+    </button>
+  </div>
 </section>
