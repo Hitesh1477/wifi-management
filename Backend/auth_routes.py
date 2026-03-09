@@ -174,7 +174,7 @@ def get_local_network_ip():
 # ---------------- STUDENT SIGNUP ----------------
 @auth_routes.route("/signup", methods=["POST"])
 def signup():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     name = data.get("name")
     roll_no = data.get("roll_no")
@@ -381,7 +381,7 @@ def logout():
 # ---------------- ADMIN LOGIN ----------------
 @auth_routes.route("/admin/login", methods=["POST"])
 def admin_login():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     username = data.get("username")
     password = data.get("password")

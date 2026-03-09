@@ -155,7 +155,7 @@ def _build_fallback_auto_recommendation(roll_no, reason=""):
 # [OK] Admin Login
 @admin_routes.route('/admin/login', methods=['POST'])
 def admin_login():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     username = data.get("username")
     password = data.get("password")
 

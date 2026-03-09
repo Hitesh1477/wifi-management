@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, abort, send_from_directory
 from flask_cors import CORS
 import os
 import socket
+import ipaddress
 
 # ✅ Import DB collections (ONLY from db.py)
 from db import users_collection, admins_collection, sessions_collection
@@ -37,18 +38,19 @@ app.register_blueprint(filtering_blueprint, url_prefix="/api/admin")
 # --------------------------------------------------
 @app.before_request
 def allow_lan_only():
-    ip = request.remote_addr or ""
+    raw_ip = request.remote_addr or ""
+    if not raw_ip:
+        abort(403)
 
-    # Allow localhost for testing
-    if ip in ("127.0.0.1", "::1"):
+    try:
+        client_ip = ipaddress.ip_address(raw_ip)
+    except ValueError:
+        abort(403)
+
+    if client_ip.is_loopback:
         return
 
-    # Allow private IP ranges only
-    if not (
-        ip.startswith("192.168.") or
-        ip.startswith("10.") or
-        ip.startswith("172.")
-    ):
+    if not client_ip.is_private:
         abort(403)
 
 # --------------------------------------------------

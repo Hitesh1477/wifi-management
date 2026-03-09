@@ -7,6 +7,14 @@ db = client["studentapp"]
 sessions_collection = db["active_sessions"]
 blocked_users = db["blocked_users"]
 
+
+def _normalize_utc(value):
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
 def is_user_blocked(roll_no):
     ban = blocked_users.find_one({"roll_no": roll_no, "status": "blocked"})
     if not ban:
@@ -15,7 +23,7 @@ def is_user_blocked(roll_no):
     if ban.get("ban_type") == "permanent":
         return True
 
-    expires_at = ban.get("expires_at")
+    expires_at = _normalize_utc(ban.get("expires_at"))
     if expires_at and datetime.now(UTC) >= expires_at:
         blocked_users.update_one(
             {"roll_no": roll_no},

@@ -68,7 +68,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const editClientForm = document.getElementById("edit-client-form");
 
     // --- App-Scoped Chart Variables ---
-    let myTrafficChart;
+    let myTrafficChart = null;
     let trafficInterval;
     const customBandwidthTimers = {};
     const DEFAULT_BANDWIDTH_PRESETS = {
@@ -85,10 +85,52 @@ document.addEventListener("DOMContentLoaded", () => {
         return parsed;
     }
 
+    function currentTimeLabel() {
+        return new Date().toLocaleTimeString('en-US', {
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    function normalizeTrafficData(rawTrafficData) {
+        const labels = Array.isArray(rawTrafficData?.labels) ? rawTrafficData.labels.slice() : [];
+        const download = Array.isArray(rawTrafficData?.download)
+            ? rawTrafficData.download.map(v => Number(v) || 0)
+            : [];
+        const upload = Array.isArray(rawTrafficData?.upload)
+            ? rawTrafficData.upload.map(v => Number(v) || 0)
+            : [];
+
+        const points = Math.max(labels.length, download.length, upload.length, 1);
+
+        while (labels.length < points) labels.push(currentTimeLabel());
+        while (download.length < points) download.push(0);
+        while (upload.length < points) upload.push(0);
+
+        return { labels, download, upload };
+    }
+
+    function updateTrafficChart(rawTrafficData) {
+        const chart = myTrafficChart || window.myTrafficChart;
+        if (!chart) return;
+
+        const traffic = normalizeTrafficData(rawTrafficData);
+        chart.data.labels = traffic.labels;
+        chart.data.datasets[0].data = traffic.download;
+        chart.data.datasets[1].data = traffic.upload;
+        chart.update('none');
+    }
+
     // --- Page Loading Logic ---
     async function loadPage(pageName) {
         if (trafficInterval) clearInterval(trafficInterval);
-        if (myTrafficChart) myTrafficChart.destroy();
+        if (window.myTrafficChart && typeof window.myTrafficChart.destroy === 'function') {
+            window.myTrafficChart.destroy();
+        }
+        myTrafficChart = null;
+        window.myTrafficChart = null;
 
         // Clean up dashboard refresh interval when leaving dashboard
         if (window.dashboardRefreshInterval) {
@@ -295,13 +337,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     threatCountElement.textContent = stats.threats_blocked || 0;
                 }
 
-                // Update traffic chart if data is available
-                if (stats.traffic_data && myTrafficChart) {
-                    myTrafficChart.data.labels = stats.traffic_data.labels || [];
-                    myTrafficChart.data.datasets[0].data = stats.traffic_data.download || [];
-                    myTrafficChart.data.datasets[1].data = stats.traffic_data.upload || [];
-                    myTrafficChart.update('none'); // Update without animation for smoothness
-                }
+                // Update traffic chart with live backend data
+                updateTrafficChart(stats.traffic_data);
 
             } catch (error) {
                 console.error('Error loading dashboard data:', error);
@@ -335,7 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const canvas = document.getElementById('traffic-chart-canvas');
         if (canvas) {
             const ctx = canvas.getContext('2d');
-            renderTrafficChart(ctx);
+            myTrafficChart = renderTrafficChart(ctx);
         }
 
         // Load initial data
@@ -2404,6 +2441,11 @@ window.editClient = function (id) {
 
 // Add this near the top of admin.js (before initDashboard uses it)
 function renderTrafficChart(ctx, chartData) {
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js is not loaded.');
+        return null;
+    }
+
     // destroy previous chart if present
     if (window.myTrafficChart && typeof window.myTrafficChart.destroy === 'function') {
         window.myTrafficChart.destroy();
@@ -2418,13 +2460,25 @@ function renderTrafficChart(ctx, chartData) {
         chartData = {
             labels,
             datasets: [
-                { label: 'Download (KB/s)', backgroundColor: 'rgba(54,162,235,0.2)', borderColor: 'rgba(54,162,235,1)', data: labels.map(() => Math.floor(Math.random() * 400) + 50), fill: true },
-                { label: 'Upload (KB/s)', backgroundColor: 'rgba(255,99,132,0.1)', borderColor: 'rgba(255,99,132,1)', data: labels.map(() => Math.floor(Math.random() * 80) + 10), fill: true }
+                {
+                    label: 'Download (KB/s)',
+                    backgroundColor: 'rgba(54,162,235,0.2)',
+                    borderColor: 'rgba(54,162,235,1)',
+                    data: labels.map(() => 0),
+                    fill: true
+                },
+                {
+                    label: 'Upload (KB/s)',
+                    backgroundColor: 'rgba(255,99,132,0.1)',
+                    borderColor: 'rgba(255,99,132,1)',
+                    data: labels.map(() => 0),
+                    fill: true
+                }
             ]
         };
     }
 
-    window.myTrafficChart = new Chart(ctx, {
+    const chartInstance = new Chart(ctx, {
         type: 'line',
         data: chartData,
         options: {
@@ -2441,6 +2495,9 @@ function renderTrafficChart(ctx, chartData) {
             }
         }
     });
+
+    window.myTrafficChart = chartInstance;
+    return chartInstance;
 }
 
 // ========== CSV UPLOAD FUNCTIONALITY - SIMPLE VERSION ==========
