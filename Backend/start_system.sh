@@ -13,8 +13,8 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-HOTSPOT_INTERFACE="wlx782051ac644f"
-HOTSPOT_IP="192.168.50.1"
+HOTSPOT_INTERFACE="${HOTSPOT_INTERFACE:-wlx782051ac644f}"
+HOTSPOT_IP="${HOTSPOT_GATEWAY_IP:-192.168.50.1}"
 
 echo "==== Step 1: Configure Network Interface ===="
 echo "🔧 Configuring $HOTSPOT_INTERFACE..."
@@ -65,12 +65,26 @@ echo ""
 echo "==== Step 4: Setting up Firewall (NAT + Captive Portal) ===="
 cd "$(dirname "$0")"
 
+echo ""
+echo "==== Step 4a: Ensuring DNS Auto-Update Permissions ===="
+AUTOUPDATE_USER="${SUDO_USER:-nikhil}"
+if [[ -x "./setup_dnsmasq_autoupdate.sh" ]]; then
+    if ./setup_dnsmasq_autoupdate.sh "$AUTOUPDATE_USER"; then
+        echo "✅ DNS auto-update helper ready for user: $AUTOUPDATE_USER"
+    else
+        echo "⚠️  Could not configure DNS auto-update helper (continuing)"
+    fi
+else
+    echo "⚠️  setup_dnsmasq_autoupdate.sh not found/executable (continuing)"
+fi
+
 # Run firewall setup with Python
 python3 << 'PYEOF'
 import sys
 sys.path.insert(0, '/home/nikhil/wifi-management/Backend')
 
 from linux_firewall_manager import setup_captive_portal, update_firewall_rules
+from dns_filtering_manager import update_dnsmasq_blocklist
 
 print("  🔧 Setting up captive portal...")
 if setup_captive_portal():
@@ -85,6 +99,12 @@ if update_firewall_rules():
 else:
     print("  ⚠️  No filtering rules found (will use defaults)")
 
+print("  🔧 Syncing dnsmasq blocklist from database...")
+if update_dnsmasq_blocklist():
+    print("  ✅ DNS blocklist synchronized")
+else:
+    print("  ⚠️  DNS blocklist sync failed (check sudo/helper permissions if backend runs as non-root)")
+
 print("  ✅ Firewall is ready")
 PYEOF
 
@@ -93,15 +113,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# ✅ Set FORWARD policy to DROP (critical for captive portal)
-echo "  🔧 Enforcing captive portal blocking..."
-iptables -P FORWARD DROP
-echo "  ✅ Captive portal blocking enabled"
-
-if [ $? -ne 0 ]; then
-    echo "❌ Firewall setup failed"
-    exit 1
-fi
+# Captive portal blocking is handled via dedicated hotspot chains.
+echo "  ✅ Captive portal chain enforcement enabled (global FORWARD policy unchanged)"
 
 echo ""
 echo "=================================="

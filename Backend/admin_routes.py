@@ -10,7 +10,8 @@ import pandas as pd
 import io
 import threading
 import logging
-from linux_firewall_manager import update_firewall_rules
+import re
+from linux_firewall_manager import update_firewall_rules, get_usage_counters_by_ip
 from bandwidth_manager import (
     apply_bandwidth_for_active_users,
     assign_auto_bandwidth,
@@ -33,6 +34,13 @@ DEFAULT_ADMIN_TIMEOUT_HOURS = 2
 DEFAULT_STUDENT_TIMEOUT_HOURS = 2
 MIN_TIMEOUT_HOURS = 1
 MAX_TIMEOUT_HOURS = 24
+FILTER_APPLY_TIMEOUT_SECONDS = 3
+
+_filter_apply_state_lock = threading.Lock()
+_filter_apply_thread = None
+_filter_apply_pending = False
+_filter_apply_next_trigger = None
+_filter_apply_last_result = {}
 
 
 def _parse_timeout_hours(value):
@@ -73,6 +81,17 @@ def _get_session_timeout_settings():
 
 def _medium_preset_mbps() -> int:
     return int(get_bandwidth_presets().get("medium", 5))
+
+
+def _safe_non_negative_int(value):
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _bytes_to_gb(byte_count: int, precision: int = 3) -> float:
+    return round(_safe_non_negative_int(byte_count) / float(1024 ** 3), precision)
 
 # [OK] Middleware for token check
 def admin_required(f):
@@ -268,21 +287,42 @@ def dashboard_stats():
         active_sessions_col = db['active_sessions'] if 'active_sessions' in db.list_collection_names() else None
         detections_col = db['detections'] if 'detections' in db.list_collection_names() else None
         blocked_users_col = db['blocked_users'] if 'blocked_users' in db.list_collection_names() else None
+
+        usage_by_ip = {}
+        try:
+            usage_by_ip = get_usage_counters_by_ip()
+        except Exception as usage_error:
+            logger.warning("Unable to read live usage counters for dashboard: %s", usage_error)
         
         # 1. Count active students (from active_sessions with status "active")
         active_students = 0
         if active_sessions_col is not None:
             active_students = active_sessions_col.count_documents({"status": "active"})
         
-        # 2. Calculate total data usage in last 24 hours (from detections)
-        # We'll use detection count as a proxy for data usage (each detection ≈ 0.01 GB)
+        # 2. Calculate real total data usage from byte counters.
         now = datetime.datetime.utcnow()
         last_24h = now - datetime.timedelta(hours=24)
-        
-        total_data_gb = 0
-        if detections_col is not None:
-            detection_count_24h = detections_col.count_documents({"timestamp": {"$gte": last_24h}})
-            total_data_gb = round(detection_count_24h * 0.01, 1)  # Approximate data usage
+
+        persisted_total_bytes = 0
+        users_cursor = users_collection.find(
+            {"role": {"$ne": "admin"}},
+            {"total_data_bytes": 1},
+        )
+        for user_doc in users_cursor:
+            persisted_total_bytes += _safe_non_negative_int(user_doc.get("total_data_bytes"))
+
+        live_session_bytes = 0
+        if active_sessions_col is not None and usage_by_ip:
+            active_sessions = active_sessions_col.find({"status": "active"}, {"client_ip": 1})
+            for session in active_sessions:
+                client_ip = str(session.get("client_ip") or "").strip()
+                if not client_ip:
+                    continue
+                live_session_bytes += _safe_non_negative_int(
+                    (usage_by_ip.get(client_ip) or {}).get("total_bytes")
+                )
+
+        total_data_gb = _bytes_to_gb(persisted_total_bytes + live_session_bytes)
         
         # 3. Count threats blocked in last 24 hours
         threats_blocked = 0
@@ -511,6 +551,12 @@ def admin_clients():
         detections_col = db['detections'] if 'detections' in db.list_collection_names() else None
         blocked_users_col = db['blocked_users'] if 'blocked_users' in db.list_collection_names() else None
         active_sessions_col = db['active_sessions'] if 'active_sessions' in db.list_collection_names() else None
+
+        usage_by_ip = {}
+        try:
+            usage_by_ip = get_usage_counters_by_ip()
+        except Exception as usage_error:
+            logger.warning("Unable to read live usage counters for clients: %s", usage_error)
         
         for c in clients_cursor:
             c['_id'] = str(c.get('_id'))
@@ -597,16 +643,35 @@ def admin_clients():
                         c['activity'] = f"{latest.get('app_name', 'Unknown')} ({latest.get('domain', 'N/A')})"
                     else:
                         c['activity'] = c.get('activity', 'Idle')
-                    
-                    # Count detections as rough "data usage" (number of requests)
-                    detection_count = detections_col.count_documents({"roll_no": roll_no})
-                    c['data_usage'] = round(detection_count * 0.01, 2)
                 except Exception:
                     c['activity'] = c.get('activity', 'Idle')
-                    c['data_usage'] = 0
             else:
                 c['activity'] = c.get('activity', 'Idle')
-                c['data_usage'] = 0
+
+            # Real data usage = persisted historical bytes + current session live counters.
+            persisted_upload = _safe_non_negative_int(c.get('total_upload_bytes'))
+            persisted_download = _safe_non_negative_int(c.get('total_download_bytes'))
+            persisted_total = _safe_non_negative_int(c.get('total_data_bytes'))
+
+            session_upload = 0
+            session_download = 0
+            session_total = 0
+            client_ip = str(c.get('ip_address') or '').strip()
+
+            if client_ip and client_ip != 'N/A':
+                live_usage = usage_by_ip.get(client_ip) or {}
+                session_upload = _safe_non_negative_int(live_usage.get('upload_bytes'))
+                session_download = _safe_non_negative_int(live_usage.get('download_bytes'))
+                session_total = _safe_non_negative_int(live_usage.get('total_bytes'))
+
+            total_upload = persisted_upload + session_upload
+            total_download = persisted_download + session_download
+            total_bytes = persisted_total + session_total
+
+            c['data_upload_bytes'] = total_upload
+            c['data_download_bytes'] = total_download
+            c['data_usage_bytes'] = total_bytes
+            c['data_usage'] = _bytes_to_gb(total_bytes)
 
             # Activity-aware enrichment for bandwidth page
             try:
@@ -1220,7 +1285,153 @@ def normalize_filter_domain(value: str) -> str:
     if host.startswith("www."):
         host = host[4:]
 
-    return host.strip(".")
+    host = host.strip(".")
+
+    # Keep IPv4 literals as-is.
+    if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", host):
+        return host
+
+    # If an admin enters a subdomain (e.g. m.example.com),
+    # normalize to the parent domain so blocking includes all subdomains.
+    parts = [part for part in host.split(".") if part]
+    if len(parts) > 2:
+        common_multi_level_suffixes = {
+            "co.uk", "org.uk", "gov.uk", "ac.uk",
+            "co.in", "org.in", "gov.in", "ac.in",
+            "com.au", "net.au", "org.au", "co.jp", "co.kr",
+        }
+        suffix_two = ".".join(parts[-2:])
+        if suffix_two in common_multi_level_suffixes and len(parts) >= 3:
+            host = ".".join(parts[-3:])
+        else:
+            host = ".".join(parts[-2:])
+
+    return host
+
+
+def _run_filtering_apply_once(trigger: str) -> dict:
+    """Apply DNS and firewall filtering rules once and return detailed status."""
+    status = {
+        "trigger": trigger,
+        "started_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "completed_at": None,
+        "success": False,
+        "partial": False,
+        "dns_updated": False,
+        "firewall_updated": False,
+        "warnings": [],
+        "errors": [],
+    }
+
+    try:
+        from dns_filtering_manager import update_dnsmasq_blocklist
+        status["dns_updated"] = bool(update_dnsmasq_blocklist())
+        if not status["dns_updated"]:
+            status["warnings"].append("DNS blocklist update failed")
+    except Exception as e:
+        status["errors"].append(f"DNS update error: {e}")
+
+    try:
+        status["firewall_updated"] = bool(update_firewall_rules())
+        if not status["firewall_updated"]:
+            status["warnings"].append("Firewall rules update failed")
+    except Exception as e:
+        status["errors"].append(f"Firewall update error: {e}")
+
+    status["partial"] = bool(status["dns_updated"] or status["firewall_updated"])
+    status["success"] = bool(status["dns_updated"] and status["firewall_updated"])
+
+    if status["firewall_updated"] and not status["dns_updated"]:
+        status["warnings"].append(
+            "Firewall rules were applied, but DNS update failed. "
+            "Subdomain blocking may be incomplete until DNS apply succeeds."
+        )
+
+    status["completed_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+    return status
+
+
+def _filtering_apply_worker(trigger: str) -> None:
+    """Background worker for rule application."""
+    global _filter_apply_last_result, _filter_apply_thread, _filter_apply_pending, _filter_apply_next_trigger
+
+    next_trigger = trigger
+
+    while True:
+        result = _run_filtering_apply_once(next_trigger)
+        with _filter_apply_state_lock:
+            _filter_apply_last_result = result
+
+            if _filter_apply_pending:
+                _filter_apply_pending = False
+                queued_trigger = _filter_apply_next_trigger or next_trigger
+                _filter_apply_next_trigger = None
+                next_trigger = queued_trigger
+                continue
+
+            _filter_apply_next_trigger = None
+            _filter_apply_thread = None
+            return
+
+
+def _start_filtering_apply(trigger: str):
+    """Start apply job if one is not already running."""
+    global _filter_apply_thread, _filter_apply_pending, _filter_apply_next_trigger
+    with _filter_apply_state_lock:
+        if _filter_apply_thread is not None and _filter_apply_thread.is_alive():
+            _filter_apply_pending = True
+            _filter_apply_next_trigger = trigger
+            return _filter_apply_thread, False
+
+        _filter_apply_pending = False
+        _filter_apply_next_trigger = None
+        thread = threading.Thread(target=_filtering_apply_worker, args=(trigger,), daemon=True)
+        _filter_apply_thread = thread
+        thread.start()
+        return thread, True
+
+
+def _apply_filtering_rules_with_timeout(trigger: str, timeout_seconds: int = FILTER_APPLY_TIMEOUT_SECONDS) -> dict:
+    """Apply filtering rules with a short wait; continue in background if slow."""
+    thread, started_new_job = _start_filtering_apply(trigger)
+    thread.join(max(0, int(timeout_seconds)))
+
+    with _filter_apply_state_lock:
+        last_result = dict(_filter_apply_last_result) if isinstance(_filter_apply_last_result, dict) else {}
+
+    if thread.is_alive():
+        return {
+            "completed": False,
+            "in_progress": True,
+            "started_new_job": started_new_job,
+            "success": False,
+            "partial": False,
+            "dns_updated": False,
+            "firewall_updated": False,
+            "warnings": ["Filtering rules are still applying in background"],
+            "errors": [],
+            "last_result": last_result,
+        }
+
+    if last_result:
+        return {
+            "completed": True,
+            "in_progress": False,
+            "started_new_job": started_new_job,
+            **last_result,
+        }
+
+    return {
+        "completed": True,
+        "in_progress": False,
+        "started_new_job": started_new_job,
+        "success": False,
+        "partial": False,
+        "dns_updated": False,
+        "firewall_updated": False,
+        "warnings": ["Filtering apply finished without status details"],
+        "errors": [],
+    }
 
 
 def _refresh_web_filter_defaults():
@@ -1347,45 +1558,27 @@ def toggle_category():
         {"$set": {f"categories.{category}.active": new_status}}
     )
     
-    # Update DNS blocklist immediately
-    try:
-        from dns_filtering_manager import update_dnsmasq_blocklist
-        print(f"\n🔄 {'Enabling' if new_status else 'Disabling'} {category} category via DNS...")
-        dns_updated = update_dnsmasq_blocklist()
-        if dns_updated:
-            print("✅ DNS blocklist updated")
-        else:
-            print("⚠️ DNS blocklist update failed")
-        
-        # Update Firewall rules (IP Blocking)
-        print(f"🔄 Updating Firewall rules...")
-        firewall_updated = update_firewall_rules()
-        if firewall_updated:
-            print("✅ Firewall rules updated")
-        else:
-            print("⚠️ Firewall rules update failed")
+    apply_status = _apply_filtering_rules_with_timeout(
+        trigger=f"category_toggle:{category}:{'on' if new_status else 'off'}"
+    )
 
-        if not dns_updated or not firewall_updated:
-            web_filter_collection.update_one(
-                {"type": "config"},
-                {"$set": {f"categories.{category}.active": current_status}}
-            )
-            return jsonify({
-                "message": "Category updated, but failed to apply filtering rules",
-                "active": new_status,
-                "dns_updated": dns_updated,
-                "firewall_updated": firewall_updated,
-            }), 500
-        
-    except Exception as e:
-        print(f"⚠️ Update failed: {e}")
-        web_filter_collection.update_one(
-            {"type": "config"},
-            {"$set": {f"categories.{category}.active": current_status}}
-        )
-        return jsonify({"message": "Category updated, but applying filtering rules failed"}), 500
-    
-    return jsonify({"message": "Updated", "active": new_status}), 200
+    if apply_status.get("completed") and apply_status.get("success"):
+        return jsonify({
+            "message": "Updated",
+            "active": new_status,
+            "apply_status": apply_status,
+        }), 200
+
+    warnings = apply_status.get("warnings") or []
+    message = "Category updated. Filtering rules are still applying in background."
+    if warnings:
+        message = f"Category updated with warning: {warnings[0]}"
+
+    return jsonify({
+        "message": message,
+        "active": new_status,
+        "apply_status": apply_status,
+    }), 202
 
 
 
@@ -1421,44 +1614,25 @@ def add_blocked_site():
         {"$addToSet": {"manual_blocks": domain}}
     )
 
-    # Update DNS blocklist immediately
-    try:
-        from dns_filtering_manager import update_dnsmasq_blocklist
-        from linux_firewall_manager import update_firewall_rules
+    apply_status = _apply_filtering_rules_with_timeout(trigger=f"manual_add:{domain}")
 
-        print(f"\n🔄 Blocking {domain} via DNS...")
-        dns_updated = update_dnsmasq_blocklist()
-        if dns_updated:
-            print("✅ DNS blocklist updated")
-        else:
-            print("⚠️ DNS blocklist update failed")
+    if apply_status.get("completed") and apply_status.get("success"):
+        return jsonify({
+            "message": f"Site blocked: {domain}",
+            "domain": domain,
+            "apply_status": apply_status,
+        }), 201
 
-        print(f"🔄 Blocking {domain} via Firewall (IPs)...")
-        firewall_updated = update_firewall_rules()
-        if firewall_updated:
-            print("✅ Firewall rules updated")
-        else:
-            print("⚠️ Firewall rules update failed")
+    warnings = apply_status.get("warnings") or []
+    message = "Site saved. Filtering rules are still applying in background."
+    if warnings:
+        message = f"Site saved with warning: {warnings[0]}"
 
-        if not dns_updated or not firewall_updated:
-            web_filter_collection.update_one(
-                {"type": "config"},
-                {"$pull": {"manual_blocks": domain}}
-            )
-            return jsonify({
-                "message": "Site saved, but failed to apply filtering rules",
-                "dns_updated": dns_updated,
-                "firewall_updated": firewall_updated,
-            }), 500
-
-        return jsonify({"message": f"Site blocked: {domain}"}), 201
-    except Exception as e:
-        print(f"⚠️ Update failed: {e}")
-        web_filter_collection.update_one(
-            {"type": "config"},
-            {"$pull": {"manual_blocks": domain}}
-        )
-        return jsonify({"message": "Site added to database, but applying filtering rules failed"}), 500
+    return jsonify({
+        "message": message,
+        "domain": domain,
+        "apply_status": apply_status,
+    }), 202
 
 
 
@@ -1497,42 +1671,22 @@ def remove_blocked_site():
         {"$pull": {"manual_blocks": {"$in": list(values_to_remove)}}}
     )
 
-    # Update DNS blocklist immediately
-    try:
-        from dns_filtering_manager import update_dnsmasq_blocklist
-        from linux_firewall_manager import update_firewall_rules
+    apply_status = _apply_filtering_rules_with_timeout(trigger=f"manual_remove:{target}")
 
-        print(f"\n🔄 Unblocking {target} via DNS...")
-        dns_updated = update_dnsmasq_blocklist()
-        if dns_updated:
-            print("✅ DNS blocklist updated")
-        else:
-            print("⚠️ DNS blocklist update failed")
+    if apply_status.get("completed") and apply_status.get("success"):
+        return jsonify({
+            "message": f"Site unblocked: {target}",
+            "domain": target,
+            "apply_status": apply_status,
+        }), 200
 
-        print(f"🔄 Unblocking {target} via Firewall...")
-        firewall_updated = update_firewall_rules()
-        if firewall_updated:
-            print("✅ Firewall rules updated")
-        else:
-            print("⚠️ Firewall rules update failed")
+    warnings = apply_status.get("warnings") or []
+    message = "Site removed. Filtering rules are still applying in background."
+    if warnings:
+        message = f"Site removed with warning: {warnings[0]}"
 
-        if not dns_updated or not firewall_updated:
-            web_filter_collection.update_one(
-                {"type": "config"},
-                {"$addToSet": {"manual_blocks": {"$each": list(values_to_remove)}}}
-            )
-            return jsonify({
-                "message": "Site removed, but failed to apply filtering rules",
-                "dns_updated": dns_updated,
-                "firewall_updated": firewall_updated,
-            }), 500
-
-        return jsonify({"message": f"Site unblocked: {target}"}), 200
-    except Exception as e:
-        print(f"⚠️ Update failed: {e}")
-        if values_to_remove:
-            web_filter_collection.update_one(
-                {"type": "config"},
-                {"$addToSet": {"manual_blocks": {"$each": list(values_to_remove)}}}
-            )
-        return jsonify({"message": "Site removed from database, but applying filtering rules failed"}), 500
+    return jsonify({
+        "message": message,
+        "domain": target,
+        "apply_status": apply_status,
+    }), 202

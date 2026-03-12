@@ -11,12 +11,14 @@ import ipaddress
 # Import firewall functions for captive portal
 _allow_authenticated_user_fn = None
 _block_authenticated_user_fn = None
+_get_usage_for_client_ip_fn = None
 FIREWALL_ENABLED = False
 
 try:
     from linux_firewall_manager import (
         allow_authenticated_user as _allow_authenticated_user_fn,
         block_authenticated_user as _block_authenticated_user_fn,
+        get_usage_for_client_ip as _get_usage_for_client_ip_fn,
     )
     FIREWALL_ENABLED = True
 except ImportError:
@@ -103,6 +105,84 @@ def _normalize_utc_naive(value):
     return value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
 
 
+def _safe_non_negative_int(value):
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sync_session_usage_totals(roll_no: str, session_doc=None):
+    """Persist latest per-session byte counters into cumulative user totals."""
+    if not roll_no:
+        return {"delta_total_bytes": 0, "client_ip": None}
+
+    if session_doc is None:
+        session_doc = sessions_collection.find_one({"roll_no": roll_no})
+
+    if not session_doc:
+        return {"delta_total_bytes": 0, "client_ip": None}
+
+    client_ip = session_doc.get("client_ip")
+    if not client_ip or not (_get_usage_for_client_ip_fn and FIREWALL_ENABLED and _is_hotspot_client_ip(client_ip)):
+        return {"delta_total_bytes": 0, "client_ip": client_ip}
+
+    try:
+        usage = _get_usage_for_client_ip_fn(client_ip) or {}
+    except Exception as error:
+        print(f"⚠️ Failed to read usage counters for {client_ip}: {error}")
+        return {"delta_total_bytes": 0, "client_ip": client_ip}
+
+    current_upload = _safe_non_negative_int(usage.get("upload_bytes"))
+    current_download = _safe_non_negative_int(usage.get("download_bytes"))
+
+    accounted_upload = _safe_non_negative_int(session_doc.get("usage_accounted_upload_bytes"))
+    accounted_download = _safe_non_negative_int(session_doc.get("usage_accounted_download_bytes"))
+
+    delta_upload = current_upload - accounted_upload if current_upload >= accounted_upload else current_upload
+    delta_download = current_download - accounted_download if current_download >= accounted_download else current_download
+    delta_total = max(0, delta_upload + delta_download)
+
+    now_utc = datetime.datetime.utcnow()
+
+    if delta_total > 0:
+        users_collection.update_one(
+            {"roll_no": roll_no},
+            {
+                "$inc": {
+                    "total_data_bytes": delta_total,
+                    "total_upload_bytes": max(0, delta_upload),
+                    "total_download_bytes": max(0, delta_download),
+                },
+                "$set": {
+                    "data_usage_updated_at": now_utc,
+                },
+            },
+        )
+
+    session_selector = {"_id": session_doc.get("_id")} if session_doc.get("_id") else {"roll_no": roll_no}
+    sessions_collection.update_one(
+        session_selector,
+        {
+            "$set": {
+                "usage_upload_bytes": current_upload,
+                "usage_download_bytes": current_download,
+                "usage_total_bytes": current_upload + current_download,
+                "usage_accounted_upload_bytes": current_upload,
+                "usage_accounted_download_bytes": current_download,
+                "usage_last_sync": now_utc,
+            }
+        },
+    )
+
+    return {
+        "client_ip": client_ip,
+        "delta_total_bytes": delta_total,
+        "delta_upload_bytes": max(0, delta_upload),
+        "delta_download_bytes": max(0, delta_download),
+    }
+
+
 def _get_active_block_doc(roll_no: str):
     blocked_users_col = db["blocked_users"]
     block_doc = blocked_users_col.find_one({"roll_no": roll_no, "status": "blocked"})
@@ -132,6 +212,11 @@ def _force_logout_session(roll_no: str, reason: str) -> bool:
         return False
 
     client_ip = active_session.get("client_ip")
+
+    try:
+        _sync_session_usage_totals(roll_no, session_doc=active_session)
+    except Exception as e:
+        print(f"⚠️ Failed to sync usage for {roll_no} before forced logout: {e}")
 
     if FIREWALL_ENABLED and _block_authenticated_user_fn and _is_hotspot_client_ip(client_ip):
         try:
@@ -261,6 +346,12 @@ def login():
             "logout_reason": None,
             "logout_message": None,
             "logout_at": None,
+            "usage_upload_bytes": 0,
+            "usage_download_bytes": 0,
+            "usage_total_bytes": 0,
+            "usage_accounted_upload_bytes": 0,
+            "usage_accounted_download_bytes": 0,
+            "usage_last_sync": None,
         }},
         upsert=True
     )
@@ -353,6 +444,11 @@ def logout():
         
         if session:
             client_ip = session.get("client_ip")
+
+            try:
+                _sync_session_usage_totals(roll_no, session_doc=session)
+            except Exception as e:
+                print(f"⚠️ Failed to sync usage for {roll_no} before logout: {e}")
             
             # ✅ Revoke internet access (captive portal)
             if FIREWALL_ENABLED and _block_authenticated_user_fn and _is_hotspot_client_ip(client_ip):

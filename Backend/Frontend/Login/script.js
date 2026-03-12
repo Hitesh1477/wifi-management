@@ -35,7 +35,11 @@ function loginUser() {
     })
     .catch(err => {
         console.error(err);
-        document.getElementById("error").innerText = "Server error";
+        if (err instanceof TypeError && err.message.includes("fetch")) {
+            document.getElementById("error").innerText = "Cannot reach server. Is it running?";
+        } else {
+            document.getElementById("error").innerText = "Server error. Please try again.";
+        }
     });
 }
 

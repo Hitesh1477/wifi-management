@@ -14,13 +14,14 @@ sys.path.insert(0, '/home/nikhil/wifi-management/Backend')
 
 from linux_firewall_manager import setup_captive_portal, get_firewall_manager
 
-print("📋 Step 1: Flushing existing firewall rules...")
+print("📋 Step 1: Resetting previous WiFi-management rules...")
 manager = get_firewall_manager()
 
-# Clear FORWARD chain
 import subprocess
-subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], check=True)
-print("✅ Cleared FORWARD chain")
+if manager.reset_firewall():
+    print("✅ Removed previous WiFi-management rules")
+else:
+    print("⚠️ Could not fully remove previous WiFi-management rules")
 
 print("")
 print("📋 Step 2: Applying new captive portal rules...")

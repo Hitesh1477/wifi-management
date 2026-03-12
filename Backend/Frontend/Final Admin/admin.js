@@ -1265,12 +1265,18 @@ document.addEventListener("DOMContentLoaded", () => {
                     showFilteringError(result.message || 'Failed to block site');
                     return;
                 }
+
+                if (res.status === 202 && result.message) {
+                    showFilteringNotice(result.message);
+                }
+
+                const persistedDomain = normalizeDomain(result.domain || domain) || domain;
                 // Optimistic UI: add to set and DOM immediately
                 websiteInput.value = '';
-                addLog('warn', 'ADMIN', `Manually blocked site: ${domain}`);
+                addLog('warn', 'ADMIN', `Manually blocked site: ${persistedDomain}`);
                 if (!window._blockedSitesSet) window._blockedSitesSet = new Set();
-                window._blockedSitesSet.add(domain);
-                db.blockedSites = [...(db.blockedSites || []), domain];
+                window._blockedSitesSet.add(persistedDomain);
+                db.blockedSites = [...(db.blockedSites || []), persistedDomain];
 
                 // Remove placeholder if present
                 const list = document.getElementById('blocked-sites-list');
@@ -1278,7 +1284,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const placeholder = list.querySelector('li[style]');
                     if (placeholder && placeholder.textContent.includes('No sites')) placeholder.remove();
                 }
-                addBlockedSiteToDOM(domain, false, false, true /* prepend */);
+                addBlockedSiteToDOM(persistedDomain, false, false, true /* prepend */);
             })
             .catch(err => {
                 console.error('Error blocking site:', err);
@@ -1506,17 +1512,24 @@ document.addEventListener("DOMContentLoaded", () => {
             body: JSON.stringify({ url: site })
         })
         .then(async res => {
+            const payload = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                alert(err.message || 'Failed to remove site');
+                alert(payload.message || 'Failed to remove site');
                 li.style.opacity = '1';
                 button.disabled = false;
                 return;
             }
+
+            if (res.status === 202 && payload.message) {
+                showFilteringNotice(payload.message);
+            }
+
+            const removedDomain = normalizeDomain(payload.domain || site) || site;
+
             // Update in-memory state
-            if (window._blockedSitesSet) window._blockedSitesSet.delete(site);
-            db.blockedSites = (db.blockedSites || []).filter(b => normalizeDomain(b) !== site);
-            addLog('info', 'ADMIN', `Removed manual block: ${site}`);
+            if (window._blockedSitesSet) window._blockedSitesSet.delete(removedDomain);
+            db.blockedSites = (db.blockedSites || []).filter(b => normalizeDomain(b) !== removedDomain);
+            addLog('info', 'ADMIN', `Removed manual block: ${removedDomain}`);
             li.remove();
 
             // Show placeholder if list is now empty
@@ -1565,6 +1578,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const result = await response.json();
             const isActive = result.active;
+
+            if (response.status === 202 && result.message) {
+                showFilteringNotice(result.message);
+            }
 
             if (isActive) {
                 addLog('warn', 'ADMIN', `Enabled category block: ${category}`);
@@ -1989,6 +2006,22 @@ document.addEventListener("DOMContentLoaded", () => {
         errEl.style.display = 'block';
         clearTimeout(errEl._hideTimer);
         errEl._hideTimer = setTimeout(() => { errEl.style.display = 'none'; }, 4000);
+    }
+
+    function showFilteringNotice(msg) {
+        let infoEl = document.getElementById('filtering-info-msg');
+        if (!infoEl) {
+            const form = document.getElementById('website-block-form');
+            if (!form) return;
+            infoEl = document.createElement('p');
+            infoEl.id = 'filtering-info-msg';
+            infoEl.style.cssText = 'color:#b45309;margin:6px 0 0;font-size:0.88em;';
+            form.after(infoEl);
+        }
+        infoEl.textContent = msg;
+        infoEl.style.display = 'block';
+        clearTimeout(infoEl._hideTimer);
+        infoEl._hideTimer = setTimeout(() => { infoEl.style.display = 'none'; }, 5000);
     }
 
     // ─── Utility Functions ──────────────────────────────────────────────────────

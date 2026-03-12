@@ -15,6 +15,9 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+HOTSPOT_INTERFACE="${HOTSPOT_INTERFACE:-wlx782051ac644f}"
+HOTSPOT_IP="${HOTSPOT_GATEWAY_IP:-192.168.50.1}"
+
 # 1. Install required packages
 echo "Step 1: Installing required packages..."
 apt update
@@ -37,9 +40,9 @@ echo "Step 3: Backing up existing configurations..."
 # 4. Create hostapd configuration
 echo ""
 echo "Step 4: Creating hostapd configuration..."
-cat > /etc/hostapd/hostapd.conf << 'EOF'
+cat > /etc/hostapd/hostapd.conf << EOF
 # WiFi Interface
-interface=wlan0
+interface=$HOTSPOT_INTERFACE
 driver=nl80211
 
 # Network Settings
@@ -66,9 +69,9 @@ echo 'DAEMON_CONF="/etc/hostapd/hostapd.conf"' > /etc/default/hostapd
 # 5. Create dnsmasq configuration
 echo ""
 echo "Step 5: Creating dnsmasq configuration..."
-cat > /etc/dnsmasq.conf << 'EOF'
+cat > /etc/dnsmasq.conf << EOF
 # Interface to listen on
-interface=wlan0
+interface=$HOTSPOT_INTERFACE
 
 # Never forward plain names (without a dot or domain part)
 domain-needed
@@ -80,10 +83,10 @@ bogus-priv
 dhcp-range=192.168.50.10,192.168.50.100,255.255.255.0,24h
 
 # Router (gateway)
-dhcp-option=3,192.168.50.1
+dhcp-option=3,$HOTSPOT_IP
 
 # DNS servers
-dhcp-option=6,192.168.50.1
+dhcp-option=6,$HOTSPOT_IP
 
 # Upstream DNS
 no-resolv
@@ -108,10 +111,10 @@ sysctl -p
 # 7. Set up network interface
 echo ""
 echo "Step 7: Configuring network interface..."
-cat > /etc/network/interfaces.d/wlan0 << 'EOF'
-auto wlan0
-iface wlan0 inet static
-    address 192.168.50.1
+cat > "/etc/network/interfaces.d/$HOTSPOT_INTERFACE" << EOF
+auto $HOTSPOT_INTERFACE
+iface $HOTSPOT_INTERFACE inet static
+    address $HOTSPOT_IP
     netmask 255.255.255.0
 EOF
 
@@ -167,6 +170,8 @@ cat > /usr/local/bin/hotspot << 'EOF'
 #!/bin/bash
 # Hotspot control script
 
+HOTSPOT_INTERFACE="${HOTSPOT_INTERFACE:-wlx782051ac644f}"
+
 case "$1" in
     start)
         echo "Starting hotspot..."
@@ -196,7 +201,7 @@ case "$1" in
         systemctl status dnsmasq --no-pager | grep Active
         echo ""
         echo "Connected clients:"
-        iw dev wlan0 station dump | grep Station | wc -l
+        iw dev "$HOTSPOT_INTERFACE" station dump | grep Station | wc -l
         ;;
     enable)
         systemctl enable hostapd

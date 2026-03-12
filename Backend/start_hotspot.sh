@@ -8,6 +8,8 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+HOTSPOT_INTERFACE="${HOTSPOT_INTERFACE:-wlx782051ac644f}"
+
 echo -e "${GREEN}=========================================${NC}"
 echo -e "${GREEN}WiFi Hotspot Quick Start${NC}"
 echo -e "${GREEN}=========================================${NC}"
@@ -21,8 +23,8 @@ fi
 
 # Function to check if interface exists
 check_interface() {
-    if iwconfig 2>&1 | grep -q "wlan0"; then
-        echo -e "${GREEN}✓${NC} WiFi adapter detected (wlan0)"
+    if iwconfig 2>&1 | grep -q "$HOTSPOT_INTERFACE"; then
+        echo -e "${GREEN}✓${NC} WiFi adapter detected ($HOTSPOT_INTERFACE)"
         return 0
     else
         echo -e "${RED}✗${NC} WiFi adapter not detected!"
@@ -60,6 +62,9 @@ echo ""
 # Step 2: Check internet interface
 echo "Step 2: Detecting internet interface..."
 find_internet_interface
+if [ -n "$INET_IFACE" ]; then
+    export INTERNET_INTERFACE="$INET_IFACE"
+fi
 echo ""
 
 # Step 3: Get backend directory
@@ -70,7 +75,8 @@ echo ""
 # Step 4: Setup firewall and NAT
 echo "Step 4: Setting up firewall and NAT..."
 cd "$SCRIPT_DIR"
-if python3 linux_firewall_manager.py; then
+export HOTSPOT_INTERFACE
+if python3 -c "from linux_firewall_manager import setup_hotspot_firewall; import sys; sys.exit(0 if setup_hotspot_firewall() else 1)"; then
     echo -e "${GREEN}✓${NC} Firewall setup complete"
 else
     echo -e "${RED}✗${NC} Firewall setup failed"

@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 class HotspotManager:
     def __init__(self):
-        self.hotspot_interface = "wlan0"
-        self.hotspot_ip = "192.168.50.1"
-        self.hotspot_subnet = "192.168.50.0/24"
+        self.hotspot_interface = os.environ.get("HOTSPOT_INTERFACE", "wlx782051ac644f")
+        self.hotspot_ip = os.environ.get("HOTSPOT_GATEWAY_IP", "192.168.50.1")
+        self.hotspot_subnet = os.environ.get("HOTSPOT_SUBNET", "192.168.50.0/24")
         
     def check_interface_exists(self) -> bool:
         """Check if wireless interface exists"""

@@ -8,11 +8,108 @@ import subprocess
 import socket
 import logging
 import os
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Set, Optional
 from db import web_filter_collection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+PUBLIC_DNS_SERVERS = ("8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1")
+GLOBAL_BLOCKS_CHAIN = "GLOBAL_BLOCKS"
+HOTSPOT_FORWARD_CHAIN = "WIFI_MGMT_FORWARD"
+HOTSPOT_AUTH_CHAIN = "WIFI_MGMT_AUTH"
+HOTSPOT_PREROUTING_CHAIN = "WIFI_MGMT_PREROUTING"
+HOTSPOT_USAGE_CHAIN = "WIFI_MGMT_USAGE"
+
+USAGE_COMMENT_UPLOAD_PREFIX = "wifi_usage_up:"
+USAGE_COMMENT_DOWNLOAD_PREFIX = "wifi_usage_down:"
+
+
+def _iptables_run(args: List[str], table: str = "filter", check: bool = False) -> subprocess.CompletedProcess:
+    command = ["sudo", "iptables"]
+    if table != "filter":
+        command.extend(["-t", table])
+    command.extend(args)
+    return subprocess.run(command, capture_output=True, text=True, check=check)
+
+
+def _iptables_rule_exists(chain: str, rule_args: List[str], table: str = "filter") -> bool:
+    result = _iptables_run(["-C", chain] + rule_args, table=table, check=False)
+    return result.returncode == 0
+
+
+def _ensure_chain(chain: str, table: str = "filter") -> None:
+    _iptables_run(["-N", chain], table=table, check=False)
+
+
+def _flush_chain(chain: str, table: str = "filter") -> None:
+    _iptables_run(["-F", chain], table=table, check=False)
+
+
+def _ensure_rule(chain: str, rule_args: List[str], table: str = "filter", insert_position: Optional[int] = None) -> None:
+    if _iptables_rule_exists(chain, rule_args, table=table):
+        return
+
+    if insert_position is None:
+        _iptables_run(["-A", chain] + rule_args, table=table, check=True)
+        return
+
+    _iptables_run(["-I", chain, str(insert_position)] + rule_args, table=table, check=True)
+
+
+def _delete_rule_all(chain: str, rule_args: List[str], table: str = "filter") -> None:
+    while True:
+        result = _iptables_run(["-D", chain] + rule_args, table=table, check=False)
+        if result.returncode != 0:
+            break
+
+
+def _usage_upload_comment(client_ip: str) -> str:
+    return f"{USAGE_COMMENT_UPLOAD_PREFIX}{client_ip}"
+
+
+def _usage_download_comment(client_ip: str) -> str:
+    return f"{USAGE_COMMENT_DOWNLOAD_PREFIX}{client_ip}"
+
+
+def _usage_upload_rule_args(client_ip: str, hotspot_interface: str, internet_interface: str) -> List[str]:
+    return [
+        "-s",
+        client_ip,
+        "-i",
+        hotspot_interface,
+        "-o",
+        internet_interface,
+        "-m",
+        "comment",
+        "--comment",
+        _usage_upload_comment(client_ip),
+        "-j",
+        "RETURN",
+    ]
+
+
+def _usage_download_rule_args(client_ip: str, hotspot_interface: str, internet_interface: str) -> List[str]:
+    return [
+        "-d",
+        client_ip,
+        "-i",
+        internet_interface,
+        "-o",
+        hotspot_interface,
+        "-m",
+        "conntrack",
+        "--ctstate",
+        "RELATED,ESTABLISHED",
+        "-m",
+        "comment",
+        "--comment",
+        _usage_download_comment(client_ip),
+        "-j",
+        "RETURN",
+    ]
 
 
 def _run_ip_command(args: List[str]) -> str:
@@ -101,6 +198,101 @@ class LinuxFirewallManager:
             self.internet_interface,
             self.hotspot_subnet,
         )
+
+    def _cleanup_legacy_rules(self):
+        """Remove broad legacy rules that could impact host networking."""
+        _delete_rule_all("FORWARD", ["-j", GLOBAL_BLOCKS_CHAIN])
+        _delete_rule_all("FORWARD", ["-i", self.hotspot_interface, "-j", "DROP"])
+        _delete_rule_all(
+            "FORWARD",
+            ["-o", self.hotspot_interface, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
+        )
+
+        _delete_rule_all(
+            "PREROUTING",
+            ["-i", self.hotspot_interface, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+            table="nat",
+        )
+        _delete_rule_all(
+            "PREROUTING",
+            ["-i", self.hotspot_interface, "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-port", "5000"],
+            table="nat",
+        )
+        _delete_rule_all(
+            "POSTROUTING",
+            ["-o", self.internet_interface, "-j", "MASQUERADE"],
+            table="nat",
+        )
+
+        _delete_rule_all("FORWARD", ["-i", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN])
+        _delete_rule_all("FORWARD", ["-o", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN])
+
+        for dns in PUBLIC_DNS_SERVERS:
+            _delete_rule_all("FORWARD", ["-d", dns, "-j", "DROP"])
+            _delete_rule_all("FORWARD", ["-d", dns, "-p", "udp", "--dport", "443", "-j", "DROP"])
+
+    def _ensure_forward_usage_order(self):
+        """Ensure usage-accounting hooks run before ACCEPT rules in FORWARD."""
+        _ensure_chain(GLOBAL_BLOCKS_CHAIN)
+        _ensure_chain(HOTSPOT_FORWARD_CHAIN)
+        _ensure_chain(HOTSPOT_AUTH_CHAIN)
+        _ensure_chain(HOTSPOT_USAGE_CHAIN)
+
+        _ensure_rule(HOTSPOT_USAGE_CHAIN, ["-j", "RETURN"])
+
+        _delete_rule_all("FORWARD", ["-i", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN])
+        _delete_rule_all("FORWARD", ["-o", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN])
+        _delete_rule_all("FORWARD", ["-i", self.hotspot_interface, "-j", HOTSPOT_FORWARD_CHAIN])
+        _delete_rule_all(
+            "FORWARD",
+            [
+                "-i",
+                self.internet_interface,
+                "-o",
+                self.hotspot_interface,
+                "-m",
+                "conntrack",
+                "--ctstate",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
+            ],
+        )
+
+        # Insert in reverse order so final chain order is:
+        # 1) usage -o hotspot, 2) usage -i hotspot,
+        # 3) established return ACCEPT, 4) hotspot forward chain.
+        _ensure_rule(
+            "FORWARD",
+            ["-i", self.hotspot_interface, "-j", HOTSPOT_FORWARD_CHAIN],
+            insert_position=1,
+        )
+        _ensure_rule(
+            "FORWARD",
+            [
+                "-i",
+                self.internet_interface,
+                "-o",
+                self.hotspot_interface,
+                "-m",
+                "conntrack",
+                "--ctstate",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
+            ],
+            insert_position=1,
+        )
+        _ensure_rule(
+            "FORWARD",
+            ["-i", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN],
+            insert_position=1,
+        )
+        _ensure_rule(
+            "FORWARD",
+            ["-o", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN],
+            insert_position=1,
+        )
         
     def setup_nat(self):
         """Enable IP forwarding and NAT for hotspot"""
@@ -129,47 +321,51 @@ class LinuxFirewallManager:
 
             # Enable IP forwarding
             subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
-            
-            # Flush existing NAT rules
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=True)
-            subprocess.run(['sudo', 'iptables', '-F'], check=True)
 
-            # Create GLOBAL_BLOCKS chain if it doesn't exist
-            try:
-                subprocess.run(['sudo', 'iptables', '-N', 'GLOBAL_BLOCKS'], check=False)
-            except:
-                pass # Chain likely already exists
-            
-            # Flush GLOBAL_BLOCKS
-            subprocess.run(['sudo', 'iptables', '-F', 'GLOBAL_BLOCKS'], check=True)
+            # Remove broad legacy rules left by older versions.
+            self._cleanup_legacy_rules()
 
-            # Insert GLOBAL_BLOCKS at the VERY TOP of FORWARD chain
-            # This ensures that ANY blocked IP is dropped immediately,
-            # BEFORE checking if the user is authenticated.
-            subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-j', 'GLOBAL_BLOCKS'], check=True)
-            
-            # 🔒 FORCE LOCAL DNS: Block access to Google/Cloudflare DNS
-            # This prevents users from bypassing dnsmasq by manually setting DNS to 8.8.8.8
-            public_dns = ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]
-            for dns in public_dns:
-                subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-d', dns, '-j', 'DROP'], check=False)
-            logger.info("🔒 Blocking Public DNS (Forces Local Filtering)")
+            # Create/refresh dedicated chains used by this project only.
+            _ensure_chain(GLOBAL_BLOCKS_CHAIN)
+            _ensure_chain(HOTSPOT_FORWARD_CHAIN)
+            _ensure_chain(HOTSPOT_AUTH_CHAIN)
+            _ensure_chain(HOTSPOT_USAGE_CHAIN)
 
-            # Set up NAT (masquerading)
-            subprocess.run([
-                'sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING',
-                '-o', self.internet_interface, '-j', 'MASQUERADE'
-            ], check=True)
-            
-            # Allow established connections back (for authenticated users)
-            subprocess.run([
-                'sudo', 'iptables', '-A', 'FORWARD',
-                '-o', self.hotspot_interface,
-                '-m', 'state', '--state', 'RELATED,ESTABLISHED',
-                '-j', 'ACCEPT'
-            ], check=True)
-            
-            logger.info("NAT setup completed successfully (with GLOBAL_BLOCKS)")
+            _flush_chain(GLOBAL_BLOCKS_CHAIN)
+            _flush_chain(HOTSPOT_FORWARD_CHAIN)
+            _flush_chain(HOTSPOT_AUTH_CHAIN)
+            _flush_chain(HOTSPOT_USAGE_CHAIN)
+
+            # Default behavior for usage chain is pass-through.
+            _ensure_rule(HOTSPOT_USAGE_CHAIN, ["-j", "RETURN"])
+
+            # Reset hooks so usage accounting runs before ACCEPT decisions.
+            self._ensure_forward_usage_order()
+
+            # NAT only hotspot subnet traffic.
+            _ensure_rule(
+                "POSTROUTING",
+                ["-s", self.hotspot_subnet, "-o", self.internet_interface, "-j", "MASQUERADE"],
+                table="nat",
+            )
+
+            # Chain order: blocklist -> DNS bypass protection -> authenticated users -> drop.
+            _ensure_rule(HOTSPOT_FORWARD_CHAIN, ["-j", GLOBAL_BLOCKS_CHAIN])
+
+            for dns in PUBLIC_DNS_SERVERS:
+                _ensure_rule(
+                    HOTSPOT_FORWARD_CHAIN,
+                    ["-d", dns, "-p", "udp", "--dport", "53", "-j", "DROP"],
+                )
+                _ensure_rule(
+                    HOTSPOT_FORWARD_CHAIN,
+                    ["-d", dns, "-p", "tcp", "--dport", "53", "-j", "DROP"],
+                )
+
+            _ensure_rule(HOTSPOT_FORWARD_CHAIN, ["-j", HOTSPOT_AUTH_CHAIN])
+            _ensure_rule(HOTSPOT_FORWARD_CHAIN, ["-j", "DROP"])
+
+            logger.info("NAT, captive filtering, and usage accounting chains configured")
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to setup NAT: {e}")
@@ -224,28 +420,15 @@ class LinuxFirewallManager:
     
     def block_ip(self, ip: str):
         """Block a specific IP address using iptables"""
-        try:
-            # Add to GLOBAL_BLOCKS chain
-            # We use -A (Append) because the chain itself is already at the top of FORWARD
-            subprocess.run([
-                'sudo', 'iptables', '-A', 'GLOBAL_BLOCKS',
-                '-d', ip,
-                '-j', 'DROP'
-            ], check=True)
-            
-            # Also block HTTPS port specifically just in case (TCP)
-            subprocess.run([
-                'sudo', 'iptables', '-A', 'GLOBAL_BLOCKS',
-                '-d', ip, '-p', 'tcp', '--dport', '443',
-                '-j', 'DROP'
-            ], check=True)
+        ip = str(ip or "").strip()
+        if not ip:
+            return False
 
-            # Block QUIC (UDP 443) - Critical for modern sites/apps
-            subprocess.run([
-                'sudo', 'iptables', '-A', 'GLOBAL_BLOCKS',
-                '-d', ip, '-p', 'udp', '--dport', '443',
-                '-j', 'DROP'
-            ], check=True)
+        try:
+            # Ensure idempotent rules (avoid duplicates in GLOBAL_BLOCKS).
+            _ensure_rule(GLOBAL_BLOCKS_CHAIN, ['-d', ip, '-j', 'DROP'])
+            _ensure_rule(GLOBAL_BLOCKS_CHAIN, ['-d', ip, '-p', 'tcp', '--dport', '443', '-j', 'DROP'])
+            _ensure_rule(GLOBAL_BLOCKS_CHAIN, ['-d', ip, '-p', 'udp', '--dport', '443', '-j', 'DROP'])
             
             self.blocked_ips.add(ip)
             logger.info(f"🚫 Blocked IP: {ip} (in GLOBAL_BLOCKS)")
@@ -259,19 +442,19 @@ class LinuxFirewallManager:
         try:
             # Remove from GLOBAL_BLOCKS
             subprocess.run([
-                'sudo', 'iptables', '-D', 'GLOBAL_BLOCKS',
+                'sudo', 'iptables', '-D', GLOBAL_BLOCKS_CHAIN,
                 '-d', ip,
                 '-j', 'DROP'
             ], check=False)
             
             subprocess.run([
-                'sudo', 'iptables', '-D', 'GLOBAL_BLOCKS',
+                'sudo', 'iptables', '-D', GLOBAL_BLOCKS_CHAIN,
                 '-d', ip, '-p', 'tcp', '--dport', '443',
                 '-j', 'DROP'
             ], check=False)
 
             subprocess.run([
-                'sudo', 'iptables', '-D', 'GLOBAL_BLOCKS',
+                'sudo', 'iptables', '-D', GLOBAL_BLOCKS_CHAIN,
                 '-d', ip, '-p', 'udp', '--dport', '443',
                 '-j', 'DROP'
             ], check=False)
@@ -300,7 +483,7 @@ class LinuxFirewallManager:
         """Clear all existing filter rules"""
         try:
             # Flush GLOBAL_BLOCKS chain
-            subprocess.run(['sudo', 'iptables', '-F', 'GLOBAL_BLOCKS'], check=True)
+            subprocess.run(['sudo', 'iptables', '-F', GLOBAL_BLOCKS_CHAIN], check=True)
             
             self.blocked_ips.clear()
             logger.info("Cleared all filter rules (flushed GLOBAL_BLOCKS)")
@@ -309,8 +492,9 @@ class LinuxFirewallManager:
             logger.error(f"Failed to clear filter rules: {e}")
             # If chain doesn't exist, try creating it
             try:
-                subprocess.run(['sudo', 'iptables', '-N', 'GLOBAL_BLOCKS'], check=False)
-                subprocess.run(['sudo', 'iptables', '-I', 'FORWARD', '1', '-j', 'GLOBAL_BLOCKS'], check=False)
+                _ensure_chain(GLOBAL_BLOCKS_CHAIN)
+                _ensure_chain(HOTSPOT_FORWARD_CHAIN)
+                _ensure_rule(HOTSPOT_FORWARD_CHAIN, ['-j', GLOBAL_BLOCKS_CHAIN])
             except:
                 pass
             return False
@@ -318,6 +502,9 @@ class LinuxFirewallManager:
     def update_from_database(self):
         """Update firewall rules based on MongoDB configuration"""
         try:
+            # Keep FORWARD hooks in the correct order for usage accounting.
+            self._ensure_forward_usage_order()
+
             config = web_filter_collection.find_one({"type": "config"})
             if not config:
                 logger.warning("No filter configuration found in database")
@@ -339,10 +526,34 @@ class LinuxFirewallManager:
                     if details.get("active", False):
                         domains_to_block.update(details.get("sites", []))
             
-            # Block all domains
+            # Resolve all domains in parallel to reduce apply latency.
+            domain_to_ips: Dict[str, Set[str]] = {}
             logger.info(f"Blocking {len(domains_to_block)} domains")
-            for domain in domains_to_block:
-                self.block_domain(domain)
+
+            if domains_to_block:
+                max_workers = min(16, max(4, len(domains_to_block)))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_domain = {
+                        executor.submit(self.resolve_domain_ips, domain): domain
+                        for domain in domains_to_block
+                    }
+
+                    for future in as_completed(future_to_domain):
+                        domain = future_to_domain[future]
+                        try:
+                            domain_to_ips[domain] = future.result() or set()
+                        except Exception as e:
+                            logger.error(f"Error resolving {domain}: {e}")
+                            domain_to_ips[domain] = set()
+
+            # Add each IP once even if multiple domains resolve to it.
+            unique_ips = set()
+            for ips in domain_to_ips.values():
+                unique_ips.update(ips)
+
+            logger.info(f"Applying blocks for {len(unique_ips)} unique IPs")
+            for ip in sorted(unique_ips):
+                self.block_ip(ip)
             
             logger.info("Firewall rules updated from database")
             return True
@@ -360,8 +571,10 @@ class LinuxFirewallManager:
         except subprocess.CalledProcessError:
             # Try alternative method
             try:
-                subprocess.run(['sudo', 'iptables-save', '>', '/etc/iptables/rules.v4'], 
-                             shell=True, check=True)
+                subprocess.run(
+                    ['sudo', 'sh', '-c', 'iptables-save > /etc/iptables/rules.v4'],
+                    check=True,
+                )
                 logger.info("Firewall rules saved (alternative method)")
                 return True
             except Exception as e:
@@ -369,31 +582,68 @@ class LinuxFirewallManager:
                 return False
     
     def reset_firewall(self):
-        """Reset all firewall rules to default state (block everything)"""
+        """Remove WiFi-management rules without flushing global firewall state."""
         try:
-            # Flus filter rules
-            subprocess.run(['sudo', 'iptables', '-F'], check=True)
-            subprocess.run(['sudo', 'iptables', '-X'], check=True)
-            
-            # Flush GLOBAL_BLOCKS if exists
-            try:
-                subprocess.run(['sudo', 'iptables', '-F', 'GLOBAL_BLOCKS'], check=False)
-                subprocess.run(['sudo', 'iptables', '-X', 'GLOBAL_BLOCKS'], check=False)
-            except:
-                pass
+            # Remove hook rules from built-in chains.
+            _delete_rule_all("FORWARD", ["-i", self.hotspot_interface, "-j", HOTSPOT_FORWARD_CHAIN])
+            _delete_rule_all("FORWARD", ["-i", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN])
+            _delete_rule_all("FORWARD", ["-o", self.hotspot_interface, "-j", HOTSPOT_USAGE_CHAIN])
+            _delete_rule_all(
+                "FORWARD",
+                [
+                    "-i",
+                    self.internet_interface,
+                    "-o",
+                    self.hotspot_interface,
+                    "-m",
+                    "conntrack",
+                    "--ctstate",
+                    "RELATED,ESTABLISHED",
+                    "-j",
+                    "ACCEPT",
+                ],
+            )
 
-            # Flush NAT rules
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], check=True)
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-X'], check=True)
-            
-            # Default policies
-            subprocess.run(['sudo', 'iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
-            subprocess.run(['sudo', 'iptables', '-P', 'FORWARD', 'DROP'], check=True)
-            subprocess.run(['sudo', 'iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
-            
+            _delete_rule_all(
+                "PREROUTING",
+                [
+                    "-i",
+                    self.hotspot_interface,
+                    "-p",
+                    "tcp",
+                    "--dport",
+                    "80",
+                    "-j",
+                    HOTSPOT_PREROUTING_CHAIN,
+                ],
+                table="nat",
+            )
+            _delete_rule_all(
+                "POSTROUTING",
+                ["-s", self.hotspot_subnet, "-o", self.internet_interface, "-j", "MASQUERADE"],
+                table="nat",
+            )
+
+            # Remove helper INPUT allowances added for hotspot services.
+            _delete_rule_all("INPUT", ["-i", self.hotspot_interface, "-p", "tcp", "--dport", "5000", "-j", "ACCEPT"])
+            _delete_rule_all("INPUT", ["-i", self.hotspot_interface, "-p", "udp", "--dport", "67", "-j", "ACCEPT"])
+            _delete_rule_all("INPUT", ["-i", self.hotspot_interface, "-p", "udp", "--dport", "53", "-j", "ACCEPT"])
+            _delete_rule_all("INPUT", ["-i", self.hotspot_interface, "-p", "tcp", "--dport", "53", "-j", "ACCEPT"])
+
+            # Remove old broad rules from legacy versions.
+            self._cleanup_legacy_rules()
+
+            # Flush and delete project chains.
+            for chain in (HOTSPOT_AUTH_CHAIN, HOTSPOT_FORWARD_CHAIN, HOTSPOT_USAGE_CHAIN, GLOBAL_BLOCKS_CHAIN):
+                _flush_chain(chain)
+                _iptables_run(["-X", chain], check=False)
+
+            _flush_chain(HOTSPOT_PREROUTING_CHAIN, table="nat")
+            _iptables_run(["-X", HOTSPOT_PREROUTING_CHAIN], table="nat", check=False)
+
             self.blocked_ips.clear()
             self.authenticated_ips.clear()
-            logger.info("✅ Firewall reset to default state")
+            logger.info("✅ WiFi-management firewall rules removed safely")
             return True
         except Exception as e:
             logger.error(f"Failed to reset firewall: {e}")
@@ -402,26 +652,63 @@ class LinuxFirewallManager:
     def setup_captive_portal_redirection(self):
         """Redirect unauthenticated HTTP traffic to Flask server"""
         try:
-            # Allow DNS requests to local dnsmasq
-            subprocess.run([
-                'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
-                '-i', self.hotspot_interface,
-                '-p', 'udp', '--dport', '53',
-                '-j', 'ACCEPT'
-            ], check=True)
-            
-            # Redirect HTTP (80) to Flask (5000)
-            subprocess.run([
-                'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
-                '-i', self.hotspot_interface,
-                '-p', 'tcp', '--dport', '80',
-                '-j', 'REDIRECT', '--to-port', '5000'
-            ], check=True)
-            
-            # Note: We cannot easily redirect HTTPS (443) without SSL errors
-            # Using DNS spoofing (dnsmasq) is preferred for blocking HTTPS domains
-            
-            logger.info("✅ Captive portal redirection configured")
+            _ensure_chain(HOTSPOT_PREROUTING_CHAIN, table="nat")
+            _flush_chain(HOTSPOT_PREROUTING_CHAIN, table="nat")
+
+            # Authenticated users bypass the redirect chain.
+            for client_ip in sorted(self.authenticated_ips):
+                _ensure_rule(
+                    HOTSPOT_PREROUTING_CHAIN,
+                    ["-s", client_ip, "-j", "RETURN"],
+                    table="nat",
+                )
+
+            # Requests explicitly targeting the gateway should not be redirected.
+            _ensure_rule(
+                HOTSPOT_PREROUTING_CHAIN,
+                ["-d", self.flask_server_ip, "-j", "RETURN"],
+                table="nat",
+            )
+
+            # Redirect unauthenticated HTTP traffic to Flask login.
+            _ensure_rule(
+                HOTSPOT_PREROUTING_CHAIN,
+                ["-j", "REDIRECT", "--to-port", "5000"],
+                table="nat",
+            )
+
+            _delete_rule_all(
+                "PREROUTING",
+                [
+                    "-i",
+                    self.hotspot_interface,
+                    "-p",
+                    "tcp",
+                    "--dport",
+                    "80",
+                    "-j",
+                    HOTSPOT_PREROUTING_CHAIN,
+                ],
+                table="nat",
+            )
+            _ensure_rule(
+                "PREROUTING",
+                [
+                    "-i",
+                    self.hotspot_interface,
+                    "-p",
+                    "tcp",
+                    "--dport",
+                    "80",
+                    "-j",
+                    HOTSPOT_PREROUTING_CHAIN,
+                ],
+                table="nat",
+                insert_position=1,
+            )
+
+            # Note: HTTPS interception is intentionally not attempted.
+            logger.info("✅ Captive portal redirection configured (HTTP only)")
             return True
         except Exception as e:
             logger.error(f"Failed to setup redirection: {e}")
@@ -434,6 +721,156 @@ class LinuxFirewallManager:
             "blocked_ips": list(self.blocked_ips)
         }
 
+    def get_usage_counters_by_ip(self) -> Dict[str, Dict[str, int]]:
+        """Read per-client upload/download byte counters from usage chain."""
+        usage: Dict[str, Dict[str, int]] = {}
+
+        def _set_usage(client_ip: str, direction: str, byte_count: int) -> None:
+            ip_text = str(client_ip or "").strip()
+            if not ip_text:
+                return
+            entry = usage.setdefault(ip_text, {"upload_bytes": 0, "download_bytes": 0, "total_bytes": 0})
+            entry[direction] = max(0, int(byte_count))
+
+        def _parse_iptables_save(output: str) -> bool:
+            parsed = False
+            chain_pattern = re.compile(
+                rf"^\[(\d+):(\d+)\]\s+-A\s+{re.escape(HOTSPOT_USAGE_CHAIN)}\s+(.*)$"
+            )
+
+            for line in (output or "").splitlines():
+                match = chain_pattern.match(line.strip())
+                if not match:
+                    continue
+
+                byte_count = int(match.group(2))
+                rule = match.group(3)
+
+                if USAGE_COMMENT_UPLOAD_PREFIX in rule:
+                    ip_match = re.search(r"-s\s+((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?", rule)
+                    if not ip_match:
+                        continue
+                    _set_usage(ip_match.group(1), "upload_bytes", byte_count)
+                    parsed = True
+                    continue
+
+                if USAGE_COMMENT_DOWNLOAD_PREFIX in rule:
+                    ip_match = re.search(r"-d\s+((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?", rule)
+                    if not ip_match:
+                        continue
+                    _set_usage(ip_match.group(1), "download_bytes", byte_count)
+                    parsed = True
+
+            return parsed
+
+        def _parse_iptables_list(output: str) -> bool:
+            parsed = False
+            for line in (output or "").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("Chain ") or stripped.startswith("pkts "):
+                    continue
+
+                parts = stripped.split()
+                if len(parts) < 9:
+                    continue
+
+                byte_text = parts[1]
+                target = parts[2]
+                source = parts[7]
+                destination = parts[8]
+
+                if target != "RETURN":
+                    continue
+
+                try:
+                    byte_count = int(byte_text)
+                except ValueError:
+                    continue
+
+                source_ip = source.split("/", 1)[0]
+                destination_ip = destination.split("/", 1)[0]
+
+                if source_ip != "0.0.0.0" and source_ip != "0.0.0.0/0":
+                    _set_usage(source_ip, "upload_bytes", byte_count)
+                    parsed = True
+                    continue
+
+                if destination_ip != "0.0.0.0" and destination_ip != "0.0.0.0/0":
+                    _set_usage(destination_ip, "download_bytes", byte_count)
+                    parsed = True
+
+            return parsed
+
+        command_candidates = [
+            ["iptables-save", "-c"],
+            ["sudo", "-n", "iptables-save", "-c"],
+        ]
+
+        parsed_any = False
+
+        for command in command_candidates:
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except Exception:
+                continue
+
+            if result.returncode != 0:
+                continue
+
+            if _parse_iptables_save(result.stdout):
+                parsed_any = True
+                break
+
+        if not parsed_any:
+            list_command_candidates = [
+                ["iptables", "-L", HOTSPOT_USAGE_CHAIN, "-v", "-n", "-x"],
+                ["sudo", "-n", "iptables", "-L", HOTSPOT_USAGE_CHAIN, "-v", "-n", "-x"],
+            ]
+
+            for command in list_command_candidates:
+                try:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                except Exception:
+                    continue
+
+                if result.returncode != 0:
+                    continue
+
+                if _parse_iptables_list(result.stdout):
+                    parsed_any = True
+                    break
+
+        if not parsed_any:
+            return usage
+
+        for entry in usage.values():
+            upload_bytes = max(0, int(entry.get("upload_bytes", 0)))
+            download_bytes = max(0, int(entry.get("download_bytes", 0)))
+            entry["total_bytes"] = upload_bytes + download_bytes
+
+        return usage
+
+    def get_usage_for_client_ip(self, client_ip: str) -> Dict[str, int]:
+        usage_map = self.get_usage_counters_by_ip()
+        usage = usage_map.get(str(client_ip).strip(), {})
+        upload_bytes = max(0, int(usage.get("upload_bytes", 0)))
+        download_bytes = max(0, int(usage.get("download_bytes", 0)))
+        return {
+            "upload_bytes": upload_bytes,
+            "download_bytes": download_bytes,
+            "total_bytes": upload_bytes + download_bytes,
+        }
+
 
 # Singleton instance
 _firewall_manager = None
@@ -444,6 +881,16 @@ def get_firewall_manager() -> LinuxFirewallManager:
     if _firewall_manager is None:
         _firewall_manager = LinuxFirewallManager()
     return _firewall_manager
+
+
+def get_usage_counters_by_ip() -> Dict[str, Dict[str, int]]:
+    """Get live usage counters keyed by client IP."""
+    return get_firewall_manager().get_usage_counters_by_ip()
+
+
+def get_usage_for_client_ip(client_ip: str) -> Dict[str, int]:
+    """Get live usage counters for a specific client IP."""
+    return get_firewall_manager().get_usage_for_client_ip(client_ip)
 
 def update_firewall_rules():
     """Update firewall rules from database (called by Flask routes)"""
@@ -463,51 +910,32 @@ def setup_captive_portal():
         
         # Setup Redirection to Captive Portal
         manager.setup_captive_portal_redirection()
-        
-        # Allow DNS queries (FORWARD chain - required for captive portal detection)
-        subprocess.run([
-            'sudo', 'iptables', '-A', 'FORWARD',
-            '-i', manager.hotspot_interface,
-            '-p', 'udp', '--dport', '53',
-            '-j', 'ACCEPT'
-        ], check=True)
-        
-        # Allow DNS responses
-        subprocess.run([
-            'sudo', 'iptables', '-A', 'FORWARD',
-            '-i', manager.hotspot_interface,
-            '-p', 'udp', '--sport', '53',
-            '-j', 'ACCEPT'
-        ], check=True)
-        
-        # Allow DHCP
-        subprocess.run([
-            'sudo', 'iptables', '-A', 'FORWARD',
-            '-i', manager.hotspot_interface,
-            '-p', 'udp', '--dport', '67:68',
-            '-j', 'ACCEPT'
-        ], check=True)
-        
-        # Allow traffic to Flask server (port 5000) on hotspot IP - INPUT chain
-        subprocess.run([
-            'sudo', 'iptables', '-I', 'INPUT', '1',
-            '-i', manager.hotspot_interface,
-            '-p', 'tcp', '--dport', '5000',
-            '-j', 'ACCEPT'
-        ], check=True)
-        
-        # ⭐ CRITICAL: Block all internet traffic from unauthenticated users
-        # This blocks ALL apps (Instagram, Snapchat, etc.) and websites before login
-        # Authenticated users bypass this via rules inserted by allow_authenticated_user()
-        subprocess.run([
-            'sudo', 'iptables', '-A', 'FORWARD',
-            '-i', manager.hotspot_interface,
-            '-j', 'DROP'
-        ], check=True)
+
+        # Ensure local services for hotspot clients are reachable.
+        _ensure_rule(
+            "INPUT",
+            ["-i", manager.hotspot_interface, "-p", "tcp", "--dport", "5000", "-j", "ACCEPT"],
+            insert_position=1,
+        )
+        _ensure_rule(
+            "INPUT",
+            ["-i", manager.hotspot_interface, "-p", "udp", "--dport", "67", "-j", "ACCEPT"],
+            insert_position=1,
+        )
+        _ensure_rule(
+            "INPUT",
+            ["-i", manager.hotspot_interface, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+            insert_position=1,
+        )
+        _ensure_rule(
+            "INPUT",
+            ["-i", manager.hotspot_interface, "-p", "tcp", "--dport", "53", "-j", "ACCEPT"],
+            insert_position=1,
+        )
         
         manager.update_from_database()
 
-        logger.info("✅ Captive portal firewall configured - all internet traffic blocked before auth")
+        logger.info("✅ Captive portal firewall configured for hotspot traffic")
         return True
     except Exception as e:
         logger.error(f"Failed to setup captive portal: {e}")
@@ -518,14 +946,44 @@ def allow_authenticated_user(client_ip: str):
     manager = get_firewall_manager()
     
     try:
-        # ⭐ INSERT at position 2 (After GLOBAL_BLOCKS but before DROP rules)
-        # Position 1 is strictly for GLOBAL_BLOCKS
-        subprocess.run([
-            'sudo', 'iptables', '-I', 'FORWARD', '2',
-            '-s', client_ip,
-            '-i', manager.hotspot_interface,
-            '-j', 'ACCEPT'
-        ], check=True)
+        _ensure_chain(HOTSPOT_AUTH_CHAIN)
+        _ensure_chain(HOTSPOT_USAGE_CHAIN)
+        _ensure_rule(HOTSPOT_USAGE_CHAIN, ["-j", "RETURN"])
+
+        _ensure_rule(
+            HOTSPOT_AUTH_CHAIN,
+            [
+                "-s",
+                client_ip,
+                "-i",
+                manager.hotspot_interface,
+                "-o",
+                manager.internet_interface,
+                "-j",
+                "ACCEPT",
+            ],
+        )
+
+        # Add per-client usage accounting rules (upload/download bytes).
+        _ensure_rule(
+            HOTSPOT_USAGE_CHAIN,
+            _usage_upload_rule_args(client_ip, manager.hotspot_interface, manager.internet_interface),
+            insert_position=1,
+        )
+        _ensure_rule(
+            HOTSPOT_USAGE_CHAIN,
+            _usage_download_rule_args(client_ip, manager.hotspot_interface, manager.internet_interface),
+            insert_position=1,
+        )
+
+        # Exempt authenticated users from captive HTTP redirect.
+        _ensure_chain(HOTSPOT_PREROUTING_CHAIN, table="nat")
+        _ensure_rule(
+            HOTSPOT_PREROUTING_CHAIN,
+            ["-s", client_ip, "-j", "RETURN"],
+            table="nat",
+            insert_position=1,
+        )
         
         manager.authenticated_ips.add(client_ip)
         logger.info(f"✅ Allowed internet access for {client_ip}")
@@ -539,13 +997,37 @@ def block_authenticated_user(client_ip: str):
     manager = get_firewall_manager()
     
     try:
-        # Remove the ACCEPT rule for this IP
-        subprocess.run([
-            'sudo', 'iptables', '-D', 'FORWARD',
-            '-s', client_ip,
-            '-i', manager.hotspot_interface,
-            '-j', 'ACCEPT'
-        ], check=False)  # Don't fail if rule doesn't exist
+        # Remove per-client usage accounting rules.
+        _delete_rule_all(
+            HOTSPOT_USAGE_CHAIN,
+            _usage_upload_rule_args(client_ip, manager.hotspot_interface, manager.internet_interface),
+        )
+        _delete_rule_all(
+            HOTSPOT_USAGE_CHAIN,
+            _usage_download_rule_args(client_ip, manager.hotspot_interface, manager.internet_interface),
+        )
+
+        # Remove filter accept rule for this IP.
+        _delete_rule_all(
+            HOTSPOT_AUTH_CHAIN,
+            [
+                "-s",
+                client_ip,
+                "-i",
+                manager.hotspot_interface,
+                "-o",
+                manager.internet_interface,
+                "-j",
+                "ACCEPT",
+            ],
+        )
+
+        # Re-enable captive portal redirect for this client.
+        _delete_rule_all(
+            HOTSPOT_PREROUTING_CHAIN,
+            ["-s", client_ip, "-j", "RETURN"],
+            table="nat",
+        )
         
         if client_ip in manager.authenticated_ips:
             manager.authenticated_ips.remove(client_ip)
@@ -557,11 +1039,13 @@ def block_authenticated_user(client_ip: str):
 
 def setup_hotspot_firewall():
     """Initial setup for hotspot firewall with captive portal"""
-    # This MUST call setup_captive_portal() to ensure the DROP rules are applied!
-    setup_captive_portal()
+    # This delegates to captive-portal setup so chain hooks are refreshed.
+    success = setup_captive_portal()
     
     manager = get_firewall_manager()
-    manager.save_rules()
+    if success:
+        manager.save_rules()
+    return success
 
 
 if __name__ == "__main__":

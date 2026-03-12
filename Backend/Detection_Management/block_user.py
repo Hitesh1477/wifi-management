@@ -9,12 +9,72 @@ db = client["studentapp"]
 blocked_users = db["blocked_users"]
 anomalies = db["anomalies"]
 sessions_collection = db["active_sessions"]
+users_collection = db["users"]
 
 
 def _ensure_backend_root_on_path():
     backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if backend_root not in sys.path:
         sys.path.insert(0, backend_root)
+
+
+def _safe_non_negative_int(value):
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sync_usage_before_block(roll_no, active_session, now):
+    client_ip = (active_session or {}).get("client_ip")
+    if not client_ip:
+        return
+
+    try:
+        _ensure_backend_root_on_path()
+        from linux_firewall_manager import get_usage_for_client_ip
+
+        usage = get_usage_for_client_ip(client_ip) or {}
+    except Exception as error:
+        print(f"⚠️ Failed reading usage counters for {roll_no} ({client_ip}): {error}")
+        return
+
+    current_upload = _safe_non_negative_int(usage.get("upload_bytes"))
+    current_download = _safe_non_negative_int(usage.get("download_bytes"))
+
+    accounted_upload = _safe_non_negative_int(active_session.get("usage_accounted_upload_bytes"))
+    accounted_download = _safe_non_negative_int(active_session.get("usage_accounted_download_bytes"))
+
+    delta_upload = current_upload - accounted_upload if current_upload >= accounted_upload else current_upload
+    delta_download = current_download - accounted_download if current_download >= accounted_download else current_download
+    delta_total = max(0, delta_upload + delta_download)
+
+    if delta_total > 0:
+        users_collection.update_one(
+            {"roll_no": roll_no},
+            {
+                "$inc": {
+                    "total_data_bytes": delta_total,
+                    "total_upload_bytes": max(0, delta_upload),
+                    "total_download_bytes": max(0, delta_download),
+                },
+                "$set": {"data_usage_updated_at": now},
+            },
+        )
+
+    sessions_collection.update_one(
+        {"_id": active_session["_id"]},
+        {
+            "$set": {
+                "usage_upload_bytes": current_upload,
+                "usage_download_bytes": current_download,
+                "usage_total_bytes": current_upload + current_download,
+                "usage_accounted_upload_bytes": current_upload,
+                "usage_accounted_download_bytes": current_download,
+                "usage_last_sync": now,
+            }
+        },
+    )
 
 
 def _force_logout_if_active(roll_no, reason):
@@ -24,6 +84,8 @@ def _force_logout_if_active(roll_no, reason):
 
     client_ip = active_session.get("client_ip")
     now = datetime.now(UTC)
+
+    _sync_usage_before_block(roll_no, active_session, now)
 
     if client_ip:
         try:
