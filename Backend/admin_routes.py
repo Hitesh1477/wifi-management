@@ -605,19 +605,31 @@ def admin_clients():
                 if block_details:
                     c['block_details'] = block_details
             else:
-                # Check if user has active session
+                # Check if user has active session (with stale session guard)
                 has_active_session = False
+                timeout_hrs = _get_session_timeout_settings().get("student_timeout_hours", DEFAULT_STUDENT_TIMEOUT_HOURS)
+                cutoff_time = datetime.datetime.utcnow() - datetime.timedelta(hours=timeout_hrs)
+
                 if active_sessions_col is not None and roll_no:
                     session = active_sessions_col.find_one({"roll_no": roll_no, "status": "active"})
                     if session:
-                        has_active_session = True
-                        c['ip_address'] = session.get('client_ip', 'N/A')
-                
+                        login_time = session.get("login_time")
+                        # Treat session as stale if login_time is older than the timeout period
+                        if login_time and isinstance(login_time, datetime.datetime) and login_time < cutoff_time:
+                            # Auto-expire stale session
+                            active_sessions_col.update_one(
+                                {"_id": session["_id"]},
+                                {"$set": {"status": "terminated", "logout_reason": "session_timeout_auto"}}
+                            )
+                        else:
+                            has_active_session = True
+                            c['ip_address'] = session.get('client_ip', 'N/A')
+
                 if has_active_session:
                     c['status'] = "Online"
                 else:
                     c['status'] = "Offline"
-                
+
                 c['blocked'] = False
             
             # Get IP from active session if not already set
@@ -711,6 +723,9 @@ def admin_add_client():
     roll_no = (data.get('roll_no') or '').strip()
     password = (data.get('password') or '').strip()
     activity = (data.get('activity') or '').strip() or 'Idle'
+    user_type = (data.get('user_type') or 'student').strip().lower()
+    if user_type not in ('student', 'faculty'):
+        user_type = 'student'
 
     if not roll_no:
         return jsonify({"message": "roll_no required"}), 400
@@ -720,6 +735,7 @@ def admin_add_client():
     doc = {
         "roll_no": roll_no,
         "role": "student",
+        "user_type": user_type,
         "blocked": False,
         "activity": activity,
         "bandwidth_limit": "medium",
@@ -761,6 +777,11 @@ def admin_update_client(id):
         if existing:
             return jsonify({"message": "roll_no already in use"}), 409
         updates['roll_no'] = new_roll
+
+    if 'user_type' in data and isinstance(data['user_type'], str):
+        ut = data['user_type'].strip().lower()
+        if ut in ('student', 'faculty'):
+            updates['user_type'] = ut
 
     if 'password' in data and isinstance(data['password'], str) and data['password'].strip():
         updates['password'] = generate_password_hash(data['password'].strip())
@@ -904,6 +925,37 @@ def admin_update_client(id):
         "apply_status": apply_status,
         "warning": auto_warning,
     }), 200
+
+@admin_routes.route('/admin/clients/<id>', methods=['DELETE'])
+@admin_required
+def admin_delete_client(id):
+    doc = _find_user_by_mixed_id(id)
+    if not doc:
+        return jsonify({"message": "Not found"}), 404
+        
+    oid = doc.get('_id')
+    roll_no = doc.get('roll_no')
+    
+    # 1. Force logout if active session exists
+    try:
+        from auth_routes import _force_logout_session
+        _force_logout_session(roll_no, "Admin deleted user")
+    except Exception as e:
+        logger.warning(f"Error forcefully logging out {roll_no} during deletion: {e}")
+        
+    # 2. Delete from blocked_users if present
+    db['blocked_users'].delete_one({"roll_no": roll_no})
+    
+    # 3. Delete from active_sessions if present
+    db['active_sessions'].delete_many({"roll_no": roll_no})
+        
+    # 4. Delete the user document itself
+    res = users_collection.delete_one({"_id": oid})
+    if res.deleted_count == 0:
+        return jsonify({"message": "Failed to delete"}), 500
+        
+    logger.info(f"Admin deleted user {roll_no}")
+    return jsonify({"message": "Client deleted successfully"}), 200
 
 
 @admin_routes.route('/admin/bandwidth/auto-assign/<id>', methods=['POST'])
@@ -1172,23 +1224,27 @@ def bulk_upload_clients():
         for row_num, (_, row) in enumerate(df.iterrows(), start=2):
             roll_no = str(row['roll_number']).strip()
             password = str(row['password']).strip()
+            # user_type is optional – defaults to 'student'
+            raw_user_type = str(row.get('user_type', 'student') or 'student').strip().lower()
+            user_type = raw_user_type if raw_user_type in ('student', 'faculty') else 'student'
             
             if not roll_no or not password:
                 skipped_count += 1
                 errors.append(f'Row {row_num}: Missing data')
                 continue
             
-            # Check if student exists
+            # Check if user exists
             if users_collection.find_one({'roll_no': roll_no}):
                 skipped_count += 1
-                errors.append(f'Student {roll_no} already exists')
+                errors.append(f'User {roll_no} already exists')
                 continue
             
-            # Insert new student (using same structure as existing add_client route)
+            # Insert new user (using same structure as existing add_client route)
             doc = {
                 'roll_no': roll_no,
                 'password': generate_password_hash(password),
                 'role': 'student',
+                'user_type': user_type,
                 'blocked': False,
                 'activity': 'Idle',
                 'bandwidth_limit': 'medium',

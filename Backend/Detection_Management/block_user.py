@@ -130,6 +130,15 @@ def block_user(roll_no, confidence, reason):
         print(f"ℹ️  {roll_no} already permanently banned")
         _force_logout_if_active(roll_no, reason)
         return False
+        
+    try:
+        from db import users_collection
+        user_doc = users_collection.find_one({"roll_no": roll_no})
+        if user_doc and user_doc.get("user_type", "student").lower() == "faculty":
+            print(f"⚠️  Anomaly detected for Faculty user {roll_no} (Confidence: {confidence:.2f}): {reason}. Bypassing auto-block.")
+            return False
+    except Exception as e:
+        print(f"Error checking user type for {roll_no}: {e}")
 
     now = datetime.now(UTC)
 

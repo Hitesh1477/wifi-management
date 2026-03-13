@@ -19,7 +19,7 @@
         <nav class="sidebar" id="sidebar">
             <ul class="sidebar-menu">
                 <li><a href="#" class="menu-item active" data-page="dashboard"><i class="fa-solid fa-house-laptop"></i> <span>Dashboard</span></a></li>
-                <li><a href="#" class="menu-item" data-page="clients"><i class="fa-solid fa-users"></i> <span>Student Devices</span></a></li>
+                <li><a href="#" class="menu-item" data-page="clients"><i class="fa-solid fa-users"></i> <span>User Devices</span></a></li>
                 <li><a href="#" class="menu-item" data-page="web_filtering"><i class="fa-solid fa-shield-halved"></i> <span>Web Filtering</span></a></li>
                 <li><a href="#" class="menu-item" data-page="bandwidth"><i class="fa-solid fa-gauge-high"></i> <span>Bandwidth Control</span></a></li>
                 <li><a href="#" class="menu-item" data-page="logs"><i class="fa-solid fa-clipboard-list"></i> <span>Network Logs</span></a></li>
@@ -80,14 +80,21 @@
     <div class="modal-overlay hidden" id="edit-modal-overlay">
         <div class="modal-content" id="edit-modal">
             <div class="modal-header">
-                <h2>Edit Student/Device</h2>
+                <h2>Edit User/Device</h2>
                 <button class="btn-close" id="edit-modal-close-btn">&times;</button>
             </div>
             <form class="settings-form" id="edit-client-form">
                 <input type="hidden" id="edit-client-id">
                 <div class="form-group">
-                    <label for="edit-client-id-text">Student Roll No</label>
+                    <label for="edit-client-id-text">User ID / Roll No</label>
                     <input type="text" id="edit-client-id-text" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-client-user-type">User Type</label>
+                    <select id="edit-client-user-type" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid #e6e9ed;font-size:14px;background:#fff;cursor:pointer;">
+                        <option value="student">Student</option>
+                        <option value="faculty">Faculty</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label for="edit-client-password">Password</label>
@@ -98,6 +105,6 @@
         </div>
     </div>
 
-    <script src="/Final Admin/admin.js"></script>
+    <script src="/Final Admin/admin.js?v=20260313"></script>
 </body>
 </html>

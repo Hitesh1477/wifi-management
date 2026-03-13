@@ -409,17 +409,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 tbody.innerHTML = '';
                 (clients || []).forEach(c => {
                     const blocked = c.blocked === true;
+                    const userType = c.user_type || 'student';
+                    const roleLabel = (userType === 'faculty') ? 'Faculty' : 'Student';
+                    const ip = c.ip_address || c.ip || 'N/A';
+                    const dataUsage = c.data_usage !== undefined ? c.data_usage + ' GB' : (c.data ? c.data + ' GB' : '0 GB');
+                    const statusText = c.status || (blocked ? 'Blocked' : 'Offline');
+                    const statusClass = blocked ? 'status-blocked' : (c.status === 'Online' ? 'status-active' : 'status-offline');
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td>${(c.roll_no || c.name || 'N/A')}</td>
-                        <td>${c.ip || 'N/A'}</td>
-                        <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                        <td>${roleLabel}</td>
+                        <td>${ip}</td>
+                        <td>${dataUsage}</td>
                         <td>${c.activity || 'Idle'}</td>
-                        <td>${blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
-                        <td class="action-buttons">
-                            <button class="btn btn-edit" onclick="editClient('${c._id || c.id}')">Edit</button>
-                            <button class="${blocked ? 'btn-unblock' : 'btn-block'} btn" onclick="toggleBlock('${c._id || c.id}', ${blocked})">${blocked ? 'Unblock' : 'Block'}</button>
-                        </td>`;
+                        <td><span class="${statusClass}">${statusText}</span></td>`;
                     tbody.appendChild(tr);
                 });
             })
@@ -1210,10 +1213,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const roll_no = document.getElementById('client-id')?.value.trim();
             const password = document.getElementById('client-password')?.value.trim();
             const activity = document.getElementById('client-activity')?.value?.trim();
-            if (!roll_no) return alert('Enter Student ID');
+            const user_type = document.getElementById('client-user-type')?.value || 'student';
+            if (!roll_no) return alert('Enter User ID');
             const token = localStorage.getItem('admin_token');
             if (!token) return alert('Please log in as admin');
-            const body = { roll_no };
+            const body = { roll_no, user_type };
             if (password) body.password = password;
             if (activity) body.activity = activity;
             fetch('/api/admin/clients', {
@@ -1419,10 +1423,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const id = document.getElementById('edit-client-id').value;
         const roll_no = document.getElementById('edit-client-id-text').value.trim();
         const password = document.getElementById('edit-client-password').value.trim();
+        const user_type = document.getElementById('edit-client-user-type')?.value || 'student';
         if (!roll_no || !id) return alert('Missing required fields');
         const token = localStorage.getItem('admin_token');
         if (!token) return alert('Please log in as admin');
-        const body = { roll_no };
+        const body = { roll_no, user_type };
         if (password) body.password = password;
         fetch(`/api/admin/clients/${id}`, {
             method: 'PATCH',
@@ -1461,6 +1466,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (pwd) pwd.value = '';
         fetchClientById(id).then(c => {
             document.getElementById('edit-client-id-text').value = (c && (c.roll_no || c.name)) ? (c.roll_no || c.name) : '';
+            const userTypeSelect = document.getElementById('edit-client-user-type');
+            if (userTypeSelect && c) {
+                userTypeSelect.value = c.user_type || 'student';
+            }
             modalOverlay.classList.remove('hidden');
         }).catch(() => {
             document.getElementById('edit-client-id-text').value = '';
@@ -1483,6 +1492,31 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!res.ok) { alert('Failed to update client'); return; }
             if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
         }).catch(err => { console.error(err); alert('Request error'); });
+    };
+
+    // expose delete client globally
+    window.deleteClient = function (id) {
+        if (!confirm(`Are you sure you want to permanently delete user ${id}? This cannot be undone.`)) return;
+        
+        const token = localStorage.getItem('admin_token');
+        if (!token) return alert('Please log in as admin');
+        
+        // Show loading state or disable button here if desired
+        fetch(`/api/admin/clients/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token }
+        }).then(async (res) => {
+            if (!res.ok) { 
+                const data = await res.json().catch(() => ({}));
+                alert(`Failed to delete client: ${data.message || res.statusText}`); 
+                return; 
+            }
+            alert('User deleted successfully');
+            if (typeof window.loadClientsData === 'function') window.loadClientsData(); else initClients();
+        }).catch(err => { 
+            console.error(err); 
+            alert('Request error while deleting client'); 
+        });
     };
 
     function closeEditModal() {
@@ -2248,10 +2282,10 @@ document.addEventListener("DOMContentLoaded", () => {
             <table class="clients-table">
               <thead>
                 <tr>
-                  <th>STUDENT / DEVICE</th>
-                  <th>IP ADDRESS</th>
+                  <th>USER</th>
+                  <th>ROLE</th>
                   <th>DATA USAGE (24H)</th>
-                  <th>CURRENT ACTIVITY (SIMULATED)</th>
+                  <th>CURRENT ACTIVITY</th>
                   <th>STATUS</th>
                   <th>ACTION</th>
                 </tr>
@@ -2306,15 +2340,19 @@ document.addEventListener("DOMContentLoaded", () => {
                     statusHtml = '<span class="status-blocked">Blocked</span>';
                 }
 
+                const userType = c.user_type || 'student';
+                const roleLabel = (userType === 'faculty') ? 'Faculty' : 'Student';
+
                 tr.innerHTML = `
                     <td>${(c.roll_no || c.name || 'N/A')}</td>
-                    <td>${c.ip_address || c.ip || 'N/A'}</td>
+                    <td>${roleLabel}</td>
                     <td>${c.data_usage || c.data ? (c.data_usage || c.data) + ' GB' : '0 GB'}</td>
                     <td>${c.activity || 'Idle'}</td>
                     <td>${statusHtml}</td>
                     <td>
-                        <button class="btn-edit" onclick="editClient('${c._id}')">Edit</button>
-                        <button onclick="toggleBlock('${c._id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                        <button class="btn btn-edit" onclick="editClient('${c.roll_no || c.name}')">Edit</button>
+                        <button class="btn btn-danger" onclick="toggleBlock('${c.roll_no || c.name}', ${c.blocked})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                        <button class="btn btn-danger" onclick="deleteClient('${c.roll_no || c.name}')" style="background:#dc3545;">Delete</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -2370,15 +2408,18 @@ async function fetchAndApplyAdminData() {
                 tbody.innerHTML = '';
                 clients.forEach(c => {
                     const tr = document.createElement('tr');
+                    const userType = c.user_type || 'student';
+                    const roleLabel = (userType === 'faculty') ? 'Faculty' : 'Student';
                     tr.innerHTML = `
                         <td>${(c.roll_no || c.name || 'N/A')}</td>
-                        <td>${c.ip || 'N/A'}</td>
-                        <td>${c.data ? c.data + ' GB' : '0 GB'}</td>
+                        <td>${roleLabel}</td>
+                        <td>${c.data_usage || c.data ? (c.data_usage || c.data) + ' GB' : '0 GB'}</td>
                         <td>${c.activity || 'Idle'}</td>
                         <td>${c.blocked ? '<span class="status-blocked">Blocked</span>' : '<span class="status-active">Active</span>'}</td>
                         <td>
-                            <button class="btn-edit" onclick="editClient('${c._id || c.id}')">Edit</button>
-                            <button onclick="toggleBlock('${c._id || c.id}', ${c.blocked === true})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                            <button class="btn btn-edit" onclick="editClient('${c.roll_no || c.name}')">Edit</button>
+                            <button class="btn btn-danger" onclick="toggleBlock('${c.roll_no || c.name}', ${c.blocked})">${c.blocked ? 'Unblock' : 'Block'}</button>
+                            <button class="btn btn-danger" onclick="deleteClient('${c.roll_no || c.name}')" style="background:#dc3545;">Delete</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
@@ -2768,8 +2809,8 @@ function initCSVUpload() {
         downloadTemplate.onclick = function (e) {
             e.preventDefault();
             console.log('Downloading template');
-            const csvContent = "roll_number,password\n23203A0027,password123\n23203A0038,password456\n23203A0045,password789";
-            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const csvContent = "roll_number,password,user_type\n23203A0027,password123,student\n23203A0038,password456,student\n23203A0045,password789,faculty";
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;

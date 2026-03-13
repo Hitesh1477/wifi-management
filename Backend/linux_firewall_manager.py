@@ -571,6 +571,7 @@ class LinuxFirewallManager:
         except subprocess.CalledProcessError:
             # Try alternative method
             try:
+                subprocess.run(['sudo', 'mkdir', '-p', '/etc/iptables'], check=True)
                 subprocess.run(
                     ['sudo', 'sh', '-c', 'iptables-save > /etc/iptables/rules.v4'],
                     check=True,

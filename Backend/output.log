@@ -1,0 +1,46 @@
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.147.50.193:5000
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:09:28] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:09:28] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:09:58] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:09:58] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /admin HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /Final%20Admin/admin.css HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /Final%20Admin/assets/css/overrides.css HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "[36mGET /Final%20Admin/vdt-logo.png HTTP/1.1[0m" 304 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "[36mGET /Final%20Admin/admin.js?v=20260313 HTTP/1.1[0m" 304 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /pages/dashboard.html HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/logs HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/stats HTTP/1.1" 200 -
+INFO:linux_firewall_manager:Firewall interfaces: hotspot=wlx782051ac644f internet=wlp0s20f3 subnet=192.168.50.0/24
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/dashboard/stats HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/logs HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:09] "GET /api/admin/clients HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:11] "GET /admin HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:11] "GET /Final%20Admin/admin.css HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:11] "GET /Final%20Admin/assets/css/overrides.css HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:11] "GET /Final%20Admin/vdt-logo.png HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:11] "GET /Final%20Admin/admin.js?v=20260313 HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/notifications HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/notifications/count HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /pages/dashboard.html HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/stats HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/logs HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/dashboard/stats HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/clients HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "GET /api/admin/logs HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:12] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:13] "GET /pages/clients.html HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:13] "GET /api/admin/clients HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:28] "GET /admin/login HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:29] "[36mGET /Final%20Admin/vdt-logo.png HTTP/1.1[0m" 304 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:31] "GET /admin/login HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:31] "GET /Final%20Admin/vdt-logo.png HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - [13/Mar/2026 22:10:31] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -

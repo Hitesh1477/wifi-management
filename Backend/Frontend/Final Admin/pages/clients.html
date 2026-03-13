@@ -1,10 +1,14 @@
 <section class="page" id="clients-page">
     <div class="card">
-        <h2>Add New Student/Device</h2>
+        <h2>Add New User/Device</h2>
         <form id="add-client-form">
             <div class="form-row">
                 <input id="client-id" name="client-id" type="text" placeholder="e.g., 23203A0027" />
                 <input id="client-password" name="client-password" type="password" placeholder="Set password" />
+                <select id="client-user-type" name="client-user-type" style="padding:10px 14px;border-radius:8px;border:1px solid #e6e9ed;font-size:14px;background:#fff;cursor:pointer;">
+                    <option value="student">Student</option>
+                    <option value="faculty">Faculty</option>
+                </select>
             </div>
             <div class="button-group">
                 <button class="btn" type="submit">Add Client</button>
@@ -20,7 +24,7 @@
             <input 
                 type="search" 
                 id="student-search" 
-                placeholder="🔍 Search by Student ID, IP, or Activity..."
+                placeholder="🔍 Search by User ID, IP, or Activity..."
                 style="width: 100%; max-width: 400px; padding: 10px 14px; border-radius: 8px; border: 1px solid #e6e9ed; font-size: 14px;"
             >
         </div>
@@ -28,8 +32,8 @@
             <table class="clients-table">
                 <thead>
                     <tr>
-                        <th>STUDENT</th>
-                        <th>IP ADDRESS</th>
+                        <th>USER</th>
+                        <th>ROLE</th>
                         <th>DATA USAGE (24H)</th>
                         <th>CURRENT ACTIVITY</th>
                         <th>STATUS</th>
@@ -59,12 +63,17 @@
                         <span class="detail-value">roll_number</span>, <span class="detail-value">password</span>
                     </div>
                     <div class="format-detail">
+                        <span class="detail-label">Optional column:</span>
+                        <span class="detail-value">user_type</span>
+                        <span class="detail-text"> (faculty / student — defaults to student)</span>
+                    </div>
+                    <div class="format-detail">
                         <span class="detail-label">File formats:</span>
                         <span class="detail-text">.csv, .xlsx, .xls</span>
                     </div>
                     <div class="format-detail">
                         <span class="detail-label">Example:</span>
-                        <span class="detail-text">23203A0027, password123</span>
+                        <span class="detail-text">23203A0027, password123, student</span>
                     </div>
                     <a href="#" class="template-download-link" id="download-template">
                         📥 Download Sample Template
@@ -91,7 +100,7 @@
                 <!-- Loading State -->
                 <div class="upload-loading-state" id="upload-loading" style="display: none;">
                     <div class="spinner-loader"></div>
-                    <p class="loading-main-text">Uploading students...</p>
+                    <p class="loading-main-text">Uploading users...</p>
                     <p class="loading-sub-text">Please wait, this may take a moment</p>
                 </div>
                 
@@ -140,26 +149,28 @@ async function loadClientsData() {
         tbody.innerHTML = '';
         clients.forEach(client => {
             const tr = document.createElement('tr');
-            const studentIdRaw = client.roll_no || client.name || 'N/A';
-            const studentId = String(studentIdRaw).replace(/\s*\([^)]*\)\s*$/, '');
-            const ip = client.ip || 'N/A';
-            const dataUsage = client.data ? client.data + ' GB' : '0 GB';
+            const userIdRaw = client.roll_no || client.name || 'N/A';
+            const userId = String(userIdRaw).replace(/\s*\([^)]*\)\s*$/, '');
+            const ip = client.ip_address || client.ip || 'N/A';
+            const dataUsage = client.data_usage !== undefined ? client.data_usage + ' GB' : (client.data ? client.data + ' GB' : '0 GB');
             const activity = client.activity || 'Idle';
             const blocked = client.blocked === true;
-            const statusClass = blocked ? 'status-blocked' : 'status-active';
-            const statusText = blocked ? 'Blocked' : 'Active';
+            const statusClass = blocked ? 'status-blocked' : (client.status === 'Online' ? 'status-active' : 'status-offline');
+            const statusText = client.status || (blocked ? 'Blocked' : 'Offline');
+            const userType = client.user_type || 'student';
+            const roleLabel = (userType === 'faculty') ? 'Faculty' : 'Student';
 
             tr.innerHTML = `
-                <td>${studentId}</td>
+                <td>${userId}</td>
+                <td>${roleLabel}</td>
                 <td>${ip}</td>
                 <td>${dataUsage}</td>
                 <td>${activity}</td>
                 <td><span class="${statusClass}">${statusText}</span></td>
-                <td class="action-buttons">
-                    <button class="btn btn-edit" onclick="editClient('${client._id}')">Edit</button>
-                    <button class="btn ${blocked ? 'btn-unblock' : 'btn-block'}" onclick="toggleBlock('${client._id}', ${blocked})">
-                        ${blocked ? 'Unblock' : 'Block'}
-                    </button>
+                <td>
+                    <button class="btn btn-edit" onclick="editClient('${client.roll_no || client.name}')">Edit</button>
+                    <button class="btn btn-danger" onclick="toggleBlock('${client.roll_no || client.name}', ${blocked})">${blocked ? 'Unblock' : 'Block'}</button>
+                    <button class="btn btn-danger" onclick="deleteClient('${client.roll_no || client.name}')" style="background:#dc3545;">Delete</button>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -205,8 +216,9 @@ document.getElementById('add-client-form')?.addEventListener('submit', async (e)
     e.preventDefault();
     const roll_no = document.getElementById('client-id')?.value.trim();
     const password = document.getElementById('client-password')?.value.trim();
+    const user_type = document.getElementById('client-user-type')?.value || 'student';
 
-    if (!roll_no) return alert('Enter Student ID');
+    if (!roll_no) return alert('Enter User ID');
 
     const token = localStorage.getItem('admin_token');
     if (!token) return alert('Please log in as admin');
@@ -218,7 +230,7 @@ document.getElementById('add-client-form')?.addEventListener('submit', async (e)
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + token
             },
-            body: JSON.stringify({ roll_no, password })
+            body: JSON.stringify({ roll_no, password, user_type })
         });
         if (!res.ok) {
             console.error('Add client failed', await res.text());
@@ -244,11 +256,13 @@ document.getElementById('student-search')?.addEventListener('input', function(e)
     const rows = tbody?.querySelectorAll('tr') || [];
     
     rows.forEach(row => {
-        const student = row.children[0]?.textContent.toLowerCase() || '';
-        const ip = row.children[1]?.textContent.toLowerCase() || '';
-        const activity = row.children[3]?.textContent.toLowerCase() || '';
+        const userId = row.children[0]?.textContent.toLowerCase() || '';
+        const role  = row.children[1]?.textContent.toLowerCase() || '';
+        const ip    = row.children[2]?.textContent.toLowerCase() || '';
+        const activity = row.children[4]?.textContent.toLowerCase() || '';
         
-        const matches = student.includes(searchTerm) || 
+        const matches = userId.includes(searchTerm) || 
+                       role.includes(searchTerm) ||
                        ip.includes(searchTerm) || 
                        activity.includes(searchTerm);
         
