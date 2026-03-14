@@ -132,7 +132,6 @@ def block_user(roll_no, confidence, reason):
         return False
         
     try:
-        from db import users_collection
         user_doc = users_collection.find_one({"roll_no": roll_no})
         if user_doc and user_doc.get("user_type", "student").lower() == "faculty":
             print(f"⚠️  Anomaly detected for Faculty user {roll_no} (Confidence: {confidence:.2f}): {reason}. Bypassing auto-block.")

@@ -789,6 +789,12 @@ def admin_update_client(id):
     # Handle blocking/unblocking - write to blocked_users collection
     if 'blocked' in data:
         should_block = bool(data['blocked'])
+        
+        if should_block:
+            current_user_type = updates.get('user_type', doc.get('user_type', 'student')).lower()
+            if current_user_type == 'faculty':
+                return jsonify({"message": "Faculty users cannot be blocked"}), 403
+                
         updates['blocked'] = should_block
         
         blocked_users_col = db['blocked_users']
