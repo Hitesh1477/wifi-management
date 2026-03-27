@@ -382,7 +382,7 @@ sudo tshark -i wlx782051ac644f
 # 6b. Monitor only DNS queries (what sites clients are trying to visit)
 sudo tshark -i wlx782051ac644f -f "udp port 53" -Y "dns"
 
-# 6c. Monitor a specific client IP (replace with actual client IP)
+# 6c. Monitor a specific client IP (replace with actual client3 IP)
 sudo tshark -i wlx782051ac644f -f "host 192.168.50.105"
 
 # 6d. See real-time data usage per IP address
